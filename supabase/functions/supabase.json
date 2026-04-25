@@ -3,10 +3,6 @@
     {
       "name": "admin-users",
       "excludeAuthentication": false
-    },
-    {
-      "name": "send-sat-email",
-      "excludeAuthentication": false
     }
   ]
 }

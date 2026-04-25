@@ -7,8 +7,18 @@ const ITEMS = [
   { key: 'admin', label: 'Admin', icono: Settings },
 ];
 
-export function NavbarInferior({ vistaActiva, onCambiarVista, mostrarAdmin = false }) {
-  const itemsVisibles = mostrarAdmin ? ITEMS : ITEMS.filter((item) => item.key !== 'admin');
+export function NavbarInferior({ vistaActiva, onCambiarVista, mostrarAdmin = false, mostrarClientes = true }) {
+  const itemsVisibles = ITEMS.filter((item) => {
+    if (item.key === 'admin') {
+      return mostrarAdmin;
+    }
+
+    if (item.key === 'clientes') {
+      return mostrarClientes;
+    }
+
+    return true;
+  });
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-marca-100 bg-white/95 px-3 pb-3 pt-2 shadow-2xl backdrop-blur lg:hidden">

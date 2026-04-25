@@ -9,6 +9,8 @@
     "dev:pwsh": "powershell -ExecutionPolicy Bypass -File ./scripts/dev.ps1",
     "build": "vite build",
     "build:pwsh": "powershell -ExecutionPolicy Bypass -File ./scripts/build.ps1",
+    "preflight:prod:pwsh": "powershell -ExecutionPolicy Bypass -File ./scripts/preflight-production.ps1",
+    "release:check:pwsh": "npm run build:pwsh; npm run preflight:prod:pwsh",
     "build:apk:pwsh": "powershell -ExecutionPolicy Bypass -File ./scripts/build-apk.ps1",
     "build:desktop:pwsh": "powershell -ExecutionPolicy Bypass -File ./scripts/build-desktop.ps1",
     "build:desktop:portable:pwsh": "powershell -ExecutionPolicy Bypass -File ./scripts/build-desktop.ps1 -Target portable",
@@ -23,11 +25,13 @@
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
     "@supabase/supabase-js": "^2.49.8",
+    "exceljs": "^4.4.0",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.511.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.14.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.0",
@@ -64,7 +68,13 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "electron/assets/app-icon.ico",
+      "uninstallerIcon": "electron/assets/app-icon.ico",
+      "installerHeaderIcon": "electron/assets/app-icon.ico",
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "SAT Movil COTEPA"
     }
   }
 }

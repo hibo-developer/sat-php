@@ -17,6 +17,8 @@ const FORM_USUARIO_INICIAL = {
   tecnico_especialidad: '',
 };
 
+const USUARIOS_POR_PAGINA = 10;
+
 export function AdminView() {
   const [usuarios, setUsuarios] = useState([]);
   const [puedeAdministrar, setPuedeAdministrar] = useState(null);
@@ -26,6 +28,13 @@ export function AdminView() {
   const [mensajeUsuarios, setMensajeUsuarios] = useState('');
   const [usuarioEditandoId, setUsuarioEditandoId] = useState('');
   const [formUsuario, setFormUsuario] = useState(FORM_USUARIO_INICIAL);
+  const [paginaUsuarios, setPaginaUsuarios] = useState(1);
+
+  const totalPaginasUsuarios = Math.max(1, Math.ceil(usuarios.length / USUARIOS_POR_PAGINA));
+  const usuariosPaginados = usuarios.slice(
+    (paginaUsuarios - 1) * USUARIOS_POR_PAGINA,
+    (paginaUsuarios - 1) * USUARIOS_POR_PAGINA + USUARIOS_POR_PAGINA,
+  );
 
   useEffect(() => {
     async function inicializarGestionUsuarios() {
@@ -99,6 +108,7 @@ export function AdminView() {
     try {
       const usuariosCargados = await listarUsuariosSat();
       setUsuarios(usuariosCargados);
+      setPaginaUsuarios(1);
     } catch (err) {
       setErrorUsuarios(err.message || 'No se pudo actualizar el listado de usuarios.');
     } finally {
@@ -175,6 +185,12 @@ export function AdminView() {
       setGuardandoUsuario(false);
     }
   }
+
+  useEffect(() => {
+    if (paginaUsuarios > totalPaginasUsuarios) {
+      setPaginaUsuarios(totalPaginasUsuarios);
+    }
+  }, [paginaUsuarios, totalPaginasUsuarios]);
 
   if (!tieneConfiguracionSupabase()) {
     return (
@@ -352,11 +368,35 @@ export function AdminView() {
               </button>
             </div>
 
+            {!cargandoUsuarios && usuarios.length > 0 && (
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                <span>Pagina {paginaUsuarios} de {totalPaginasUsuarios}</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaginaUsuarios((previo) => Math.max(1, previo - 1))}
+                    disabled={paginaUsuarios === 1}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaginaUsuarios((previo) => Math.min(totalPaginasUsuarios, previo + 1))}
+                    disabled={paginaUsuarios === totalPaginasUsuarios}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
+
             {cargandoUsuarios ? (
               <p className="text-sm font-semibold text-slate-600">Cargando usuarios...</p>
             ) : (
               <ul className="space-y-2">
-                {usuarios.map((usuario) => (
+                {usuariosPaginados.map((usuario) => (
                   <li key={usuario.user_id} className="rounded-xl border border-slate-200 bg-white p-3">
                     <p className="text-sm font-bold text-slate-800">{usuario.email}</p>
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rol: {usuario.rol}</p>

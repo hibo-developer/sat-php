@@ -44,7 +44,9 @@ const FORM_MATERIAL_INICIAL = {
   activo: true,
 };
 
-export function ClientesView() {
+const OPCIONES_ITEMS_PAGINA = [5, 10, 20];
+
+export function ClientesView({ rolUsuario }) {
   const [tabActiva, setTabActiva] = useState('clientes');
   const [clientes, setClientes] = useState([]);
   const [equipos, setEquipos] = useState([]);
@@ -61,8 +63,16 @@ export function ClientesView() {
   const [busquedaEquipo, setBusquedaEquipo] = useState('');
   const [materialForm, setMaterialForm] = useState(FORM_MATERIAL_INICIAL);
   const [materialEditandoId, setMaterialEditandoId] = useState('');
+  const [paginaClientes, setPaginaClientes] = useState(1);
+  const [paginaEquipos, setPaginaEquipos] = useState(1);
+  const [paginaMateriales, setPaginaMateriales] = useState(1);
+  const [itemsPaginaClientes, setItemsPaginaClientes] = useState(5);
+  const [itemsPaginaEquipos, setItemsPaginaEquipos] = useState(5);
+  const [itemsPaginaMateriales, setItemsPaginaMateriales] = useState(5);
 
   const sinConfiguracion = useMemo(() => !tieneConfiguracionSupabase(), []);
+  const puedeEditarCatalogos = rolUsuario === 'admin' || rolUsuario === 'oficina';
+  const modoSoloLectura = !puedeEditarCatalogos;
   const equiposFiltrados = useMemo(() => {
     const termino = busquedaEquipo.trim().toLowerCase();
 
@@ -86,6 +96,49 @@ export function ClientesView() {
       );
     });
   }, [equipos, busquedaEquipo]);
+  const totalPaginasClientes = Math.max(1, Math.ceil(clientes.length / itemsPaginaClientes));
+  const clientesPaginados = useMemo(() => {
+    const inicio = (paginaClientes - 1) * itemsPaginaClientes;
+    return clientes.slice(inicio, inicio + itemsPaginaClientes);
+  }, [clientes, paginaClientes, itemsPaginaClientes]);
+  const totalPaginasEquipos = Math.max(1, Math.ceil(equiposFiltrados.length / itemsPaginaEquipos));
+  const equiposPaginados = useMemo(() => {
+    const inicio = (paginaEquipos - 1) * itemsPaginaEquipos;
+    return equiposFiltrados.slice(inicio, inicio + itemsPaginaEquipos);
+  }, [equiposFiltrados, paginaEquipos, itemsPaginaEquipos]);
+  const totalPaginasMateriales = Math.max(1, Math.ceil(materialesInventario.length / itemsPaginaMateriales));
+  const materialesPaginados = useMemo(() => {
+    const inicio = (paginaMateriales - 1) * itemsPaginaMateriales;
+    return materialesInventario.slice(inicio, inicio + itemsPaginaMateriales);
+  }, [materialesInventario, paginaMateriales, itemsPaginaMateriales]);
+
+  useEffect(() => {
+    if (paginaClientes > totalPaginasClientes) {
+      setPaginaClientes(totalPaginasClientes);
+    }
+  }, [paginaClientes, totalPaginasClientes]);
+
+  useEffect(() => {
+    if (paginaEquipos > totalPaginasEquipos) {
+      setPaginaEquipos(totalPaginasEquipos);
+    }
+  }, [paginaEquipos, totalPaginasEquipos]);
+
+  useEffect(() => {
+    if (paginaMateriales > totalPaginasMateriales) {
+      setPaginaMateriales(totalPaginasMateriales);
+    }
+  }, [paginaMateriales, totalPaginasMateriales]);
+
+  useEffect(() => {
+    setPaginaClientes(1);
+    setPaginaEquipos(1);
+    setPaginaMateriales(1);
+  }, [tabActiva]);
+
+  useEffect(() => {
+    setPaginaEquipos(1);
+  }, [busquedaEquipo]);
 
   async function recargarDatos() {
     if (sinConfiguracion) {
@@ -274,6 +327,12 @@ export function ClientesView() {
         <p className="mt-1 text-sm text-slate-200">Gestión de clientes, equipos e inventario de materiales.</p>
       </header>
 
+      {modoSoloLectura && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Tu rol técnico solo tiene acceso de consulta a catálogos. La edición está reservada a administración/oficina.
+        </p>
+      )}
+
       <div className="grid grid-cols-3 gap-2 rounded-2xl border border-marca-100 bg-marca-50 p-1">
         <button
           type="button"
@@ -314,84 +373,128 @@ export function ClientesView() {
       {tabActiva === 'clientes' && (
         <>
           <div className="lg:grid lg:grid-cols-12 lg:gap-4">
-            <form onSubmit={guardarCliente} className="space-y-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta lg:col-span-4 lg:sticky lg:top-5 lg:self-start">
-              <h3 className="text-base font-bold text-slate-800">
-                {clienteEditandoId ? 'Editar cliente' : 'Nuevo cliente'}
-              </h3>
+            {puedeEditarCatalogos && (
+              <form onSubmit={guardarCliente} className="space-y-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta lg:col-span-4 lg:sticky lg:top-5 lg:self-start">
+                <h3 className="text-base font-bold text-slate-800">
+                  {clienteEditandoId ? 'Editar cliente' : 'Nuevo cliente'}
+                </h3>
 
-              <input
-                required
-                value={clienteForm.nombre}
-                onChange={(e) => setClienteForm((p) => ({ ...p, nombre: e.target.value }))}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-                placeholder="Nombre del cliente"
-              />
-              <input
-                value={clienteForm.direccion}
-                onChange={(e) => setClienteForm((p) => ({ ...p, direccion: e.target.value }))}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-                placeholder="Dirección"
-              />
-              <input
-                value={clienteForm.telefono}
-                onChange={(e) => setClienteForm((p) => ({ ...p, telefono: e.target.value }))}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-                placeholder="Teléfono"
-              />
-              <input
-                type="email"
-                value={clienteForm.email}
-                onChange={(e) => setClienteForm((p) => ({ ...p, email: e.target.value }))}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-                placeholder="Email"
-              />
+                <input
+                  required
+                  value={clienteForm.nombre}
+                  onChange={(e) => setClienteForm((p) => ({ ...p, nombre: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder="Nombre del cliente"
+                />
+                <input
+                  value={clienteForm.direccion}
+                  onChange={(e) => setClienteForm((p) => ({ ...p, direccion: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder="Dirección"
+                />
+                <input
+                  value={clienteForm.telefono}
+                  onChange={(e) => setClienteForm((p) => ({ ...p, telefono: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder="Teléfono"
+                />
+                <input
+                  type="email"
+                  value={clienteForm.email}
+                  onChange={(e) => setClienteForm((p) => ({ ...p, email: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder="Email"
+                />
 
-              <div className="grid grid-cols-2 gap-2">
-                <button className="rounded-xl bg-cotepa-rojo-500 px-4 py-3 text-sm font-bold text-white" type="submit">
-                  {clienteEditandoId ? 'Actualizar' : 'Crear'}
-                </button>
-                <button
-                  className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
-                  type="button"
-                  onClick={limpiarFormCliente}
-                >
-                  Limpiar
-                </button>
-              </div>
-            </form>
+                <div className="grid grid-cols-2 gap-2">
+                  <button className="rounded-xl bg-cotepa-rojo-500 px-4 py-3 text-sm font-bold text-white" type="submit">
+                    {clienteEditandoId ? 'Actualizar' : 'Crear'}
+                  </button>
+                  <button
+                    className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
+                    type="button"
+                    onClick={limpiarFormCliente}
+                  >
+                    Limpiar
+                  </button>
+                </div>
+              </form>
+            )}
 
-            <div className="space-y-2 lg:col-span-8">
+            <div className={`space-y-2 ${puedeEditarCatalogos ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
               {cargando && <p className="text-sm font-semibold text-slate-600">Cargando clientes...</p>}
+              {!cargando && clientes.length > 0 && (
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                  <div className="flex items-center gap-3">
+                    <span>Pagina {paginaClientes} de {totalPaginasClientes}</span>
+                    <label className="flex items-center gap-1">
+                      <span>Mostrar</span>
+                      <select
+                        value={itemsPaginaClientes}
+                        onChange={(e) => {
+                          setItemsPaginaClientes(Number(e.target.value));
+                          setPaginaClientes(1);
+                        }}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                      >
+                        {OPCIONES_ITEMS_PAGINA.map((opcion) => (
+                          <option key={opcion} value={opcion}>{opcion}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaginaClientes((previo) => Math.max(1, previo - 1))}
+                      disabled={paginaClientes === 1}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaginaClientes((previo) => Math.min(totalPaginasClientes, previo + 1))}
+                      disabled={paginaClientes === totalPaginasClientes}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+              )}
               {!cargando &&
-                clientes.map((cliente) => (
+                clientesPaginados.map((cliente) => (
                   <article key={cliente.id} className="rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta">
                     <p className="text-sm font-bold text-slate-800">{cliente.nombre}</p>
                     <p className="text-xs text-slate-600">{cliente.telefono || 'Sin teléfono'} · {cliente.email || 'Sin email'}</p>
                     <p className="mt-1 text-xs text-slate-500">{cliente.direccion || 'Sin dirección'}</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        className="rounded-xl bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
-                        onClick={() => {
-                          setClienteEditandoId(cliente.id);
-                          setClienteForm({
-                            nombre: cliente.nombre || '',
-                            direccion: cliente.direccion || '',
-                            telefono: cliente.telefono || '',
-                            email: cliente.email || '',
-                          });
-                        }}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-bold text-rose-700"
-                        onClick={() => borrarCliente(cliente.id)}
-                      >
-                        Eliminar
-                      </button>
-                    </div>
+                    {puedeEditarCatalogos && (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
+                          onClick={() => {
+                            setClienteEditandoId(cliente.id);
+                            setClienteForm({
+                              nombre: cliente.nombre || '',
+                              direccion: cliente.direccion || '',
+                              telefono: cliente.telefono || '',
+                              email: cliente.email || '',
+                            });
+                          }}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-bold text-rose-700"
+                          onClick={() => borrarCliente(cliente.id)}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
                   </article>
                 ))}
             </div>
@@ -402,6 +505,7 @@ export function ClientesView() {
       {tabActiva === 'equipos' && (
         <>
           <div className="lg:grid lg:grid-cols-12 lg:gap-4">
+          {puedeEditarCatalogos && (
           <form onSubmit={guardarEquipo} className="space-y-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta lg:col-span-4 lg:sticky lg:top-5 lg:self-start">
             <h3 className="text-base font-bold text-slate-800">
               {equipoEditandoId ? 'Editar equipo' : 'Nuevo equipo'}
@@ -472,8 +576,9 @@ export function ClientesView() {
               </button>
             </div>
           </form>
+          )}
 
-          <div className="space-y-2 lg:col-span-8">
+          <div className={`space-y-2 ${puedeEditarCatalogos ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
             <input
               value={busquedaEquipo}
               onChange={(e) => setBusquedaEquipo(e.target.value)}
@@ -481,8 +586,48 @@ export function ClientesView() {
               placeholder="Buscar por cliente, nombre, marca, modelo o serie"
             />
             {cargando && <p className="text-sm font-semibold text-slate-600">Cargando equipos...</p>}
+            {!cargando && equiposFiltrados.length > 0 && (
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                <div className="flex items-center gap-3">
+                  <span>Pagina {paginaEquipos} de {totalPaginasEquipos}</span>
+                  <label className="flex items-center gap-1">
+                    <span>Mostrar</span>
+                    <select
+                      value={itemsPaginaEquipos}
+                      onChange={(e) => {
+                        setItemsPaginaEquipos(Number(e.target.value));
+                        setPaginaEquipos(1);
+                      }}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                    >
+                      {OPCIONES_ITEMS_PAGINA.map((opcion) => (
+                        <option key={opcion} value={opcion}>{opcion}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaginaEquipos((previo) => Math.max(1, previo - 1))}
+                    disabled={paginaEquipos === 1}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaginaEquipos((previo) => Math.min(totalPaginasEquipos, previo + 1))}
+                    disabled={paginaEquipos === totalPaginasEquipos}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
             {!cargando &&
-              equiposFiltrados.map((equipo) => (
+              equiposPaginados.map((equipo) => (
                 <article key={equipo.id} className="rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta">
                   <p className="text-sm font-bold text-slate-800">{equipo.nombre}</p>
                   <p className="text-xs text-slate-600">
@@ -494,32 +639,34 @@ export function ClientesView() {
                   <p className="mt-1 text-xs text-slate-500">
                     Última revisión: {equipo.ultima_revision || 'No registrada'}
                   </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      className="rounded-xl bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
-                      onClick={() => {
-                        setEquipoEditandoId(equipo.id);
-                        setEquipoForm({
-                          cliente_id: equipo.cliente_id || '',
-                          nombre: equipo.nombre || '',
-                          marca: equipo.marca || '',
-                          modelo: equipo.modelo || '',
-                          numero_serie: equipo.numero_serie || '',
-                          ultima_revision: equipo.ultima_revision || '',
-                        });
-                      }}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-bold text-rose-700"
-                      onClick={() => borrarEquipo(equipo.id)}
-                    >
-                      Eliminar
-                    </button>
-                  </div>
+                  {puedeEditarCatalogos && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        className="rounded-xl bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
+                        onClick={() => {
+                          setEquipoEditandoId(equipo.id);
+                          setEquipoForm({
+                            cliente_id: equipo.cliente_id || '',
+                            nombre: equipo.nombre || '',
+                            marca: equipo.marca || '',
+                            modelo: equipo.modelo || '',
+                            numero_serie: equipo.numero_serie || '',
+                            ultima_revision: equipo.ultima_revision || '',
+                          });
+                        }}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-bold text-rose-700"
+                        onClick={() => borrarEquipo(equipo.id)}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  )}
                 </article>
               ))}
             {!cargando && busquedaEquipo.trim() && equiposFiltrados.length === 0 && (
@@ -535,6 +682,7 @@ export function ClientesView() {
       {tabActiva === 'materiales' && (
         <>
           <div className="lg:grid lg:grid-cols-12 lg:gap-4">
+          {puedeEditarCatalogos && (
           <form onSubmit={guardarMaterial} className="space-y-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta lg:col-span-4 lg:sticky lg:top-5 lg:self-start">
             <h3 className="text-base font-bold text-slate-800">
               {materialEditandoId ? 'Editar material' : 'Nuevo material'}
@@ -603,11 +751,52 @@ export function ClientesView() {
               </button>
             </div>
           </form>
+          )}
 
-          <div className="space-y-2 lg:col-span-8">
+          <div className={`space-y-2 ${puedeEditarCatalogos ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
             {cargando && <p className="text-sm font-semibold text-slate-600">Cargando materiales...</p>}
+            {!cargando && materialesInventario.length > 0 && (
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                <div className="flex items-center gap-3">
+                  <span>Pagina {paginaMateriales} de {totalPaginasMateriales}</span>
+                  <label className="flex items-center gap-1">
+                    <span>Mostrar</span>
+                    <select
+                      value={itemsPaginaMateriales}
+                      onChange={(e) => {
+                        setItemsPaginaMateriales(Number(e.target.value));
+                        setPaginaMateriales(1);
+                      }}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                    >
+                      {OPCIONES_ITEMS_PAGINA.map((opcion) => (
+                        <option key={opcion} value={opcion}>{opcion}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaginaMateriales((previo) => Math.max(1, previo - 1))}
+                    disabled={paginaMateriales === 1}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaginaMateriales((previo) => Math.min(totalPaginasMateriales, previo + 1))}
+                    disabled={paginaMateriales === totalPaginasMateriales}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
             {!cargando &&
-              materialesInventario.map((material) => (
+              materialesPaginados.map((material) => (
                 <article key={material.id} className="rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta">
                   <p className="text-sm font-bold text-slate-800">{material.nombre}</p>
                   <p className="text-xs text-slate-600">
@@ -618,32 +807,34 @@ export function ClientesView() {
                   </p>
                   <p className="mt-1 text-xs text-slate-500">Estado: {material.activo ? 'Activo' : 'Inactivo'}</p>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      className="rounded-xl bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
-                      onClick={() => {
-                        setMaterialEditandoId(material.id);
-                        setMaterialForm({
-                          nombre: material.nombre || '',
-                          descripcion: material.descripcion || '',
-                          unidad: material.unidad || 'ud',
-                          stock_actual: String(material.stock_actual ?? 0),
-                          precio_ref: material.precio_ref ?? '',
-                          activo: Boolean(material.activo),
-                        });
-                      }}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-bold text-rose-700"
-                      onClick={() => borrarMaterial(material.id)}
-                    >
-                      Eliminar
-                    </button>
-                  </div>
+                  {puedeEditarCatalogos && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        className="rounded-xl bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
+                        onClick={() => {
+                          setMaterialEditandoId(material.id);
+                          setMaterialForm({
+                            nombre: material.nombre || '',
+                            descripcion: material.descripcion || '',
+                            unidad: material.unidad || 'ud',
+                            stock_actual: String(material.stock_actual ?? 0),
+                            precio_ref: material.precio_ref ?? '',
+                            activo: Boolean(material.activo),
+                          });
+                        }}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-bold text-rose-700"
+                        onClick={() => borrarMaterial(material.id)}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  )}
                 </article>
               ))}
           </div>

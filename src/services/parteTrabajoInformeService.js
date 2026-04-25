@@ -1,8 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { obtenerClienteSupabase } from './supabaseClient';
 
-const DESTINO_SAT = 'sat@cotepa.com';
-
 export function obtenerUrlPublicaInformeParte(clienteId, parteId) {
   const cliente = valorTexto(clienteId, '').trim();
   const parte = valorTexto(parteId, '').trim();
@@ -16,17 +14,6 @@ export function obtenerUrlPublicaInformeParte(clienteId, parteId) {
   const { data } = supabase.storage.from('informes-partes').getPublicUrl(ruta);
 
   return data?.publicUrl || '';
-}
-
-function resolverDestinoCorreo(destinoSolicitado) {
-  const destino = valorTexto(destinoSolicitado, DESTINO_SAT);
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-  if (!emailRegex.test(destino)) {
-    throw new Error('El correo destino no es valido.');
-  }
-
-  return destino;
 }
 
 function valorTexto(valor, fallback = 'N/D') {
@@ -45,6 +32,33 @@ function formatearFecha(valor) {
   }
 
   return fecha.toLocaleString('es-ES');
+}
+
+function formatearFechaOficial(valor) {
+  if (!valor) {
+    return 'N/D';
+  }
+
+  const fecha = new Date(valor);
+  if (!Number.isFinite(fecha.getTime())) {
+    return String(valor);
+  }
+
+  return new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(fecha);
+}
+
+function crearReferenciaInforme(parteId, fechaIso) {
+  const fecha = new Date(fechaIso);
+  const y = Number.isFinite(fecha.getTime()) ? fecha.getFullYear() : new Date().getFullYear();
+  const base = valorTexto(parteId, `${Date.now()}`).replace(/\s+/g, '-').toUpperCase();
+  return `SAT-${y}-${base}`;
 }
 
 function materialesDesdeTexto(texto) {
@@ -66,20 +80,290 @@ function materialesDesdeTexto(texto) {
     });
 }
 
-function agregarLinea(doc, texto, estado, opciones = {}) {
-  const { size = 11, espacio = 6 } = opciones;
-  doc.setFontSize(size);
+const PDF_ESTILO = {
+  colorPrimario: [15, 23, 42],
+  colorSecundario: [226, 232, 240],
+  colorAcento: [185, 28, 28],
+  colorTexto: [30, 41, 59],
+  margenX: 15,
+  anchoContenido: 180,
+};
 
-  const lineas = doc.splitTextToSize(texto, 180);
-  lineas.forEach((linea) => {
-    if (estado.y > 280) {
-      doc.addPage();
-      estado.y = 20;
+function iniciarPagina(doc, estado) {
+  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
+  doc.setLineWidth(0.4);
+  doc.rect(8, 8, 194, 281);
+  estado.y = 18;
+}
+
+function reservarEspacio(doc, estado, altoNecesario, withHeader = true) {
+  if (estado.y + altoNecesario <= 284) {
+    return;
+  }
+
+  doc.addPage();
+  iniciarPagina(doc, estado);
+  if (withHeader) {
+    dibujarCabeceraSimple(doc, estado);
+  }
+}
+
+function dibujarCabeceraSimple(doc, estado) {
+  doc.setFillColor(...PDF_ESTILO.colorPrimario);
+  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, 14, 2, 2, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('INFORME SAT', PDF_ESTILO.margenX + 4, estado.y + 9);
+
+  doc.setTextColor(...PDF_ESTILO.colorTexto);
+  estado.y += 20;
+}
+
+function dibujarCabeceraPrincipal(doc, estado, parteId) {
+  doc.setFillColor(...PDF_ESTILO.colorPrimario);
+  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, 26, 3, 3, 'F');
+
+  const logoX = PDF_ESTILO.margenX + 4;
+  const logoY = estado.y + 4;
+  doc.setFillColor(255, 255, 255);
+  doc.circle(logoX + 6, logoY + 6, 6, 'F');
+  doc.setFillColor(...PDF_ESTILO.colorAcento);
+  doc.circle(logoX + 6, logoY + 6, 3.2, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text('INFORME DE PARTE DE TRABAJO', PDF_ESTILO.margenX + 20, estado.y + 10);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text('SAT COTEPA · Servicio Tecnico', PDF_ESTILO.margenX + 20, estado.y + 16);
+  doc.text(`Ref. parte: ${valorTexto(parteId)}`, PDF_ESTILO.margenX + 20, estado.y + 22);
+
+  doc.setTextColor(...PDF_ESTILO.colorTexto);
+  estado.y += 32;
+}
+
+function dibujarBloqueDatos(doc, estado, datos) {
+  const altoFila = 7;
+  const alto = datos.length * altoFila + 6;
+  reservarEspacio(doc, estado, alto);
+
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
+  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, alto, 2, 2, 'FD');
+
+  let y = estado.y + 7;
+  datos.forEach(([etiqueta, valor]) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...PDF_ESTILO.colorPrimario);
+    doc.text(`${etiqueta}:`, PDF_ESTILO.margenX + 4, y);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...PDF_ESTILO.colorTexto);
+    doc.text(valorTexto(valor), PDF_ESTILO.margenX + 52, y);
+    y += altoFila;
+  });
+
+  estado.y += alto + 5;
+}
+
+function dibujarTituloSeccion(doc, estado, titulo) {
+  reservarEspacio(doc, estado, 12);
+  doc.setFillColor(...PDF_ESTILO.colorAcento);
+  doc.roundedRect(PDF_ESTILO.margenX, estado.y, 3, 8, 1, 1, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(...PDF_ESTILO.colorPrimario);
+  doc.text(titulo, PDF_ESTILO.margenX + 7, estado.y + 6);
+
+  doc.setTextColor(...PDF_ESTILO.colorTexto);
+  estado.y += 11;
+}
+
+function dibujarParrafo(doc, estado, texto) {
+  const contenido = valorTexto(texto);
+  const lineas = doc.splitTextToSize(contenido, PDF_ESTILO.anchoContenido - 8);
+  const alto = lineas.length * 5 + 8;
+  reservarEspacio(doc, estado, alto);
+
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
+  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, alto, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(...PDF_ESTILO.colorTexto);
+  doc.text(lineas, PDF_ESTILO.margenX + 4, estado.y + 6);
+  estado.y += alto + 4;
+}
+
+function dibujarTablaMateriales(doc, estado, materiales) {
+  if (!materiales.length) {
+    dibujarParrafo(doc, estado, 'Sin materiales declarados.');
+    return;
+  }
+
+  const altoCabecera = 8;
+  const altoFila = 7;
+  const altoTabla = altoCabecera + materiales.length * altoFila;
+  reservarEspacio(doc, estado, altoTabla + 6);
+
+  const x = PDF_ESTILO.margenX;
+  const colNombre = 110;
+  const colCantidad = 30;
+  const colPrecio = 40;
+
+  doc.setFillColor(...PDF_ESTILO.colorPrimario);
+  doc.rect(x, estado.y, PDF_ESTILO.anchoContenido, altoCabecera, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text('Material', x + 3, estado.y + 5.5);
+  doc.text('Cantidad', x + colNombre + 3, estado.y + 5.5);
+  doc.text('Precio', x + colNombre + colCantidad + 3, estado.y + 5.5);
+
+  let y = estado.y + altoCabecera;
+  materiales.forEach((material, indice) => {
+    doc.setFillColor(indice % 2 === 0 ? 248 : 241, indice % 2 === 0 ? 250 : 245, indice % 2 === 0 ? 252 : 249);
+    doc.rect(x, y, PDF_ESTILO.anchoContenido, altoFila, 'F');
+    doc.setDrawColor(...PDF_ESTILO.colorSecundario);
+    doc.rect(x, y, PDF_ESTILO.anchoContenido, altoFila);
+
+    doc.setTextColor(...PDF_ESTILO.colorTexto);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+
+    const nombre = doc.splitTextToSize(material.nombre, colNombre - 5)[0] || 'Material';
+    doc.text(nombre, x + 3, y + 4.8);
+    doc.text(valorTexto(material.cantidad), x + colNombre + 3, y + 4.8);
+    doc.text(valorTexto(material.precio), x + colNombre + colCantidad + 3, y + 4.8);
+
+    y += altoFila;
+  });
+
+  estado.y += altoTabla + 4;
+}
+
+async function dibujarFotos(doc, estado, fotosIntervencionUrls) {
+  if (!Array.isArray(fotosIntervencionUrls) || fotosIntervencionUrls.length === 0) {
+    dibujarParrafo(doc, estado, 'Sin fotos adjuntas.');
+    return;
+  }
+
+  const anchoCaja = 87;
+  const altoCaja = 62;
+  const maxAnchoImg = 79;
+  const maxAltoImg = 44;
+  const columnas = 2;
+
+  for (let i = 0; i < fotosIntervencionUrls.length; i += columnas) {
+    reservarEspacio(doc, estado, altoCaja + 4);
+
+    for (let col = 0; col < columnas; col += 1) {
+      const indice = i + col;
+      if (!fotosIntervencionUrls[indice]) continue;
+
+      const x = PDF_ESTILO.margenX + col * (anchoCaja + 6);
+      const y = estado.y;
+
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(...PDF_ESTILO.colorSecundario);
+      doc.roundedRect(x, y, anchoCaja, altoCaja, 2, 2, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...PDF_ESTILO.colorPrimario);
+      doc.text(`Foto ${indice + 1}`, x + 3, y + 6);
+
+      const dataUrl = await urlADataUrl(fotosIntervencionUrls[indice]);
+      if (!dataUrl) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text('No se pudo cargar la imagen.', x + 3, y + 15);
+        continue;
+      }
+
+      // Ajustar imagen al marco sin deformar.
+      await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const ratio = img.naturalWidth / img.naturalHeight;
+          let ancho = maxAnchoImg;
+          let alto = ancho / ratio;
+
+          if (alto > maxAltoImg) {
+            alto = maxAltoImg;
+            ancho = alto * ratio;
+          }
+
+          const xImg = x + (anchoCaja - ancho) / 2;
+          const yImg = y + 11 + (maxAltoImg - alto) / 2;
+          doc.addImage(dataUrl, 'JPEG', xImg, yImg, ancho, alto);
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = dataUrl;
+      });
     }
 
-    doc.text(linea, 15, estado.y);
-    estado.y += espacio;
-  });
+    estado.y += altoCaja + 4;
+  }
+}
+
+async function dibujarFirma(doc, estado, firmaUrl) {
+  reservarEspacio(doc, estado, 58);
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
+  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, 54, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(...PDF_ESTILO.colorPrimario);
+  doc.text('Firma del cliente', PDF_ESTILO.margenX + 4, estado.y + 8);
+
+  if (firmaUrl) {
+    const firmaDataUrl = await urlADataUrl(firmaUrl);
+    if (firmaDataUrl) {
+      doc.addImage(firmaDataUrl, 'PNG', PDF_ESTILO.margenX + 4, estado.y + 11, 85, 36);
+    } else {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text('No se pudo cargar la firma.', PDF_ESTILO.margenX + 4, estado.y + 16);
+    }
+  } else {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Sin firma registrada.', PDF_ESTILO.margenX + 4, estado.y + 16);
+  }
+
+  doc.setDrawColor(148, 163, 184);
+  doc.line(PDF_ESTILO.margenX + 110, estado.y + 41, PDF_ESTILO.margenX + 175, estado.y + 41);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Nombre y conformidad del cliente', PDF_ESTILO.margenX + 111, estado.y + 46);
+
+  estado.y += 58;
+}
+
+function dibujarPiePaginas(doc) {
+  const totalPaginas = doc.getNumberOfPages();
+  for (let pagina = 1; pagina <= totalPaginas; pagina += 1) {
+    doc.setPage(pagina);
+    doc.setDrawColor(...PDF_ESTILO.colorSecundario);
+    doc.line(15, 286, 195, 286);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`SAT COTEPA · Documento generado automaticamente · Pagina ${pagina}/${totalPaginas}`, 15, 290);
+  }
 }
 
 async function urlADataUrl(url) {
@@ -107,132 +391,49 @@ async function crearPdfInforme({
   tecnicoNombre,
   firmaUrl,
   fotosIntervencionUrls,
-  destinoCorreo,
 }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const estado = { y: 18 };
   const materiales = materialesDesdeTexto(formulario.materialesTexto);
+  const fechaInformeIso = new Date().toISOString();
+  const referenciaInforme = crearReferenciaInforme(parte.id, fechaInformeIso);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('Informe de Parte de Trabajo SAT', 15, estado.y);
-  estado.y += 8;
+  iniciarPagina(doc, estado);
+  dibujarCabeceraPrincipal(doc, estado, parte.id);
 
-  doc.setFont('helvetica', 'normal');
-  agregarLinea(doc, `ID Parte: ${valorTexto(parte.id)}`, estado);
-  agregarLinea(doc, `Fecha informe: ${formatearFecha(new Date().toISOString())}`, estado);
-  agregarLinea(doc, `Cliente: ${clienteNombre}`, estado);
-  agregarLinea(doc, `Equipo: ${equipoNombre}`, estado);
-  agregarLinea(doc, `Tecnico: ${tecnicoNombre}`, estado);
-  agregarLinea(doc, `Destino correo: ${destinoCorreo}`, estado);
-  agregarLinea(doc, `Prioridad: ${valorTexto(formulario.prioridad)}`, estado);
-  agregarLinea(doc, `Tiempo empleado (min): ${valorTexto(String(formulario.tiempo_empleado))}`, estado);
+  dibujarBloqueDatos(doc, estado, [
+    ['Nº informe', referenciaInforme],
+    ['Fecha de informe', formatearFechaOficial(fechaInformeIso)],
+    ['Cliente', clienteNombre],
+    ['Equipo', equipoNombre],
+    ['Tecnico', tecnicoNombre],
+    ['Prioridad', valorTexto(formulario.prioridad)],
+    ['Tiempo empleado (min)', valorTexto(String(formulario.tiempo_empleado))],
+  ]);
 
-  estado.y += 3;
-  doc.setFont('helvetica', 'bold');
-  agregarLinea(doc, 'Descripcion del problema:', estado);
-  doc.setFont('helvetica', 'normal');
-  agregarLinea(doc, valorTexto(formulario.descripcion_problema), estado);
+  dibujarTituloSeccion(doc, estado, 'Descripcion del problema');
+  dibujarParrafo(doc, estado, formulario.descripcion_problema);
 
-  estado.y += 3;
-  doc.setFont('helvetica', 'bold');
-  agregarLinea(doc, 'Control de tiempos y geolocalizacion:', estado);
-  doc.setFont('helvetica', 'normal');
-  agregarLinea(doc, `Inicio: ${formatearFecha(seguimientoTiempo?.inicioIso)}`, estado);
-  agregarLinea(
-    doc,
-    `Lugar inicio: ${valorTexto(seguimientoTiempo?.ubicacionInicio?.nombreLugarCompleto || seguimientoTiempo?.ubicacionInicio?.nombreLugar)}`,
-    estado,
-  );
-  agregarLinea(doc, `Fin: ${formatearFecha(seguimientoTiempo?.finIso)}`, estado);
-  agregarLinea(
-    doc,
-    `Lugar fin: ${valorTexto(seguimientoTiempo?.ubicacionFin?.nombreLugarCompleto || seguimientoTiempo?.ubicacionFin?.nombreLugar)}`,
-    estado,
-  );
-  agregarLinea(doc, `Distancia geo (m): ${valorTexto(seguimientoTiempo?.distanciaMetros ? String(seguimientoTiempo.distanciaMetros) : '', 'N/D')}`, estado);
-  agregarLinea(doc, `Tiempo geo (min): ${valorTexto(seguimientoTiempo?.minutosGeo ? String(seguimientoTiempo.minutosGeo) : '', 'N/D')}`, estado);
+  dibujarTituloSeccion(doc, estado, 'Control de tiempos y geolocalizacion');
+  dibujarBloqueDatos(doc, estado, [
+    ['Inicio', formatearFecha(seguimientoTiempo?.inicioIso)],
+    ['Lugar inicio', valorTexto(seguimientoTiempo?.ubicacionInicio?.nombreLugarCompleto || seguimientoTiempo?.ubicacionInicio?.nombreLugar)],
+    ['Fin', formatearFecha(seguimientoTiempo?.finIso)],
+    ['Lugar fin', valorTexto(seguimientoTiempo?.ubicacionFin?.nombreLugarCompleto || seguimientoTiempo?.ubicacionFin?.nombreLugar)],
+    ['Distancia geo (m)', valorTexto(seguimientoTiempo?.distanciaMetros ? String(seguimientoTiempo.distanciaMetros) : '', 'N/D')],
+    ['Tiempo geo (min)', valorTexto(seguimientoTiempo?.minutosGeo ? String(seguimientoTiempo.minutosGeo) : '', 'N/D')],
+  ]);
 
-  estado.y += 3;
-  doc.setFont('helvetica', 'bold');
-  agregarLinea(doc, 'Materiales usados:', estado);
-  doc.setFont('helvetica', 'normal');
+  dibujarTituloSeccion(doc, estado, 'Materiales utilizados');
+  dibujarTablaMateriales(doc, estado, materiales);
 
-  if (materiales.length === 0) {
-    agregarLinea(doc, 'Sin materiales declarados.', estado);
-  } else {
-    materiales.forEach((material, index) => {
-      agregarLinea(
-        doc,
-        `${index + 1}. ${material.nombre} | Cantidad: ${material.cantidad} | Precio: ${material.precio}`,
-        estado,
-      );
-    });
-  }
+  dibujarTituloSeccion(doc, estado, 'Evidencias fotograficas');
+  await dibujarFotos(doc, estado, fotosIntervencionUrls);
 
-  estado.y += 3;
-  doc.setFont('helvetica', 'bold');
-  agregarLinea(doc, 'Fotos de la intervencion:', estado);
-  doc.setFont('helvetica', 'normal');
+  dibujarTituloSeccion(doc, estado, 'Conformidad');
+  await dibujarFirma(doc, estado, firmaUrl);
 
-  if (!Array.isArray(fotosIntervencionUrls) || fotosIntervencionUrls.length === 0) {
-    agregarLinea(doc, 'Sin fotos adjuntas.', estado);
-  } else {
-    const MAX_ANCHO = 180;
-    const MAX_ALTO = 100;
-    for (let i = 0; i < fotosIntervencionUrls.length; i++) {
-      const dataUrl = await urlADataUrl(fotosIntervencionUrls[i]);
-      if (!dataUrl) {
-        agregarLinea(doc, `Foto ${i + 1}: no se pudo cargar.`, estado);
-        continue;
-      }
-      // Calcular dimensiones proporcionales
-      await new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          const ratio = img.naturalWidth / img.naturalHeight;
-          let w = MAX_ANCHO;
-          let h = w / ratio;
-          if (h > MAX_ALTO) {
-            h = MAX_ALTO;
-            w = h * ratio;
-          }
-          if (estado.y + h + 4 > 285) {
-            doc.addPage();
-            estado.y = 20;
-          }
-          doc.addImage(dataUrl, 'JPEG', 15, estado.y, w, h);
-          estado.y += h + 5;
-          resolve();
-        };
-        img.onerror = () => resolve();
-        img.src = dataUrl;
-      });
-    }
-  }
-
-  estado.y += 3;
-  doc.setFont('helvetica', 'bold');
-  agregarLinea(doc, 'Firma del cliente:', estado);
-  doc.setFont('helvetica', 'normal');
-
-  if (firmaUrl) {
-    const firmaDataUrl = await urlADataUrl(firmaUrl);
-    if (firmaDataUrl) {
-      const FIRMA_ANCHO = 80;
-      const FIRMA_ALTO = 40;
-      if (estado.y + FIRMA_ALTO + 4 > 285) {
-        doc.addPage();
-        estado.y = 20;
-      }
-      doc.addImage(firmaDataUrl, 'PNG', 15, estado.y, FIRMA_ANCHO, FIRMA_ALTO);
-      estado.y += FIRMA_ALTO + 5;
-    } else {
-      agregarLinea(doc, valorTexto(firmaUrl), estado);
-    }
-  } else {
-    agregarLinea(doc, 'Sin firma.', estado);
-  }
+  dibujarPiePaginas(doc);
 
   const nombreArchivo = `informe-parte-${parte.id || Date.now()}.pdf`;
   const pdfBlob = doc.output('blob');
@@ -262,61 +463,7 @@ async function subirPdfInforme({ pdfBlob, nombreArchivo, clienteId }) {
   return data?.publicUrl || null;
 }
 
-async function enviarCorreoInforme({ pdfUrl, parteId, destinoCorreo, fotosIntervencionUrls }) {
-  const asunto = `Informe parte de trabajo ${parteId}`;
-  const cuerpo = [
-    'Adjuntamos el informe del parte de trabajo generado desde SAT Movil.',
-    '',
-    `Parte: ${parteId}`,
-    `PDF: ${pdfUrl}`,
-    fotosIntervencionUrls && fotosIntervencionUrls.length > 0
-      ? `Fotos: ${fotosIntervencionUrls.join(' | ')}`
-      : 'Fotos: Sin adjuntos',
-  ].join('\n');
-
-  const endpoint = import.meta.env.VITE_SAT_MAIL_ENDPOINT;
-
-  if (!endpoint) {
-    throw new Error(
-      'Falta configurar VITE_SAT_MAIL_ENDPOINT para enviar el informe automaticamente por correo.',
-    );
-  }
-
-  const supabase = obtenerClienteSupabase();
-  const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
-
-  if (sessionError || !session?.access_token) {
-    throw new Error('No hay sesion valida para enviar correos. Inicia sesion de nuevo.');
-  }
-
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${session.access_token}`,
-  };
-
-  const respuesta = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      to: destinoCorreo,
-      subject: asunto,
-      text: cuerpo,
-      pdfUrl,
-      parteId,
-    }),
-  });
-
-  if (!respuesta.ok) {
-    throw new Error(`El endpoint de correo respondió ${respuesta.status}.`);
-  }
-
-  return { metodo: 'endpoint' };
-}
-
-export async function generarYEnviarInformeParte({
+export async function generarYSubirInformeParte({
   parte,
   formulario,
   seguimientoTiempo,
@@ -324,11 +471,8 @@ export async function generarYEnviarInformeParte({
   equipoNombre,
   tecnicoNombre,
   firmaUrl,
-  destinoEmail,
   fotosIntervencionUrls,
 }) {
-  const destinoCorreo = resolverDestinoCorreo(destinoEmail);
-
   const { pdfBlob, nombreArchivo } = await crearPdfInforme({
     parte,
     formulario,
@@ -338,7 +482,6 @@ export async function generarYEnviarInformeParte({
     tecnicoNombre,
     firmaUrl,
     fotosIntervencionUrls,
-    destinoCorreo,
   });
 
   const pdfUrl = await subirPdfInforme({
@@ -351,16 +494,6 @@ export async function generarYEnviarInformeParte({
     throw new Error('No se pudo obtener la URL pública del informe PDF.');
   }
 
-  const envio = await enviarCorreoInforme({
-    pdfUrl,
-    parteId: parte.id || 'sin-id',
-    destinoCorreo,
-    fotosIntervencionUrls,
-  });
-
-  return {
-    pdfUrl,
-    destino: destinoCorreo,
-    metodoEnvio: envio.metodo,
-  };
+  return { pdfUrl, nombreArchivo };
 }
+

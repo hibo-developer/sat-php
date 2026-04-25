@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { NavbarInferior } from './components/NavbarInferior';
 import { useAuthSession } from './hooks/useAuthSession';
 import { obtenerClienteSupabase, tieneConfiguracionSupabase } from './services/supabaseClient';
@@ -23,16 +24,45 @@ const NAV_ITEMS = [
   { key: 'admin', label: 'Admin' },
 ];
 
+const RUTA_POR_VISTA = {
+  ordenes: '/ordenes',
+  parte: '/parte',
+  clientes: '/clientes',
+  admin: '/admin',
+};
+
+function obtenerVistaDesdeRuta(pathname) {
+  if (pathname.startsWith('/parte')) {
+    return 'parte';
+  }
+
+  if (pathname.startsWith('/clientes')) {
+    return 'clientes';
+  }
+
+  if (pathname.startsWith('/admin')) {
+    return 'admin';
+  }
+
+  return 'ordenes';
+}
+
 export default function App() {
-  const [vistaActiva, setVistaActiva] = useState('ordenes');
   const [rolUsuario, setRolUsuario] = useState(null);
   const [verificandoRol, setVerificandoRol] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
   const { sesion, cargando, error, login, logout } = useAuthSession();
   const requiereLogin = tieneConfiguracionSupabase();
   const accesoBloqueado = requiereLogin && !sesion;
   const esAdmin = rolUsuario === 'admin';
-  const tituloActual = accesoBloqueado
+  const esTecnico = rolUsuario === 'tecnico';
+  const puedeVerClientes = rolUsuario !== 'tecnico';
+  const vistaActiva = obtenerVistaDesdeRuta(location.pathname);
+  const tituloActual = accesoBloqueado || verificandoRol
     ? 'Acceso'
+    : esTecnico && vistaActiva === 'clientes'
+      ? TITULOS.ordenes
     : !esAdmin && vistaActiva === 'admin'
       ? TITULOS.ordenes
       : TITULOS[vistaActiva] || TITULOS.ordenes;
@@ -84,21 +114,39 @@ export default function App() {
 
   useEffect(() => {
     if (!accesoBloqueado && !verificandoRol && vistaActiva === 'admin' && !esAdmin) {
-      setVistaActiva('ordenes');
+      navigate('/ordenes', { replace: true });
     }
-  }, [accesoBloqueado, esAdmin, verificandoRol, vistaActiva]);
+  }, [accesoBloqueado, esAdmin, navigate, verificandoRol, vistaActiva]);
+
+  useEffect(() => {
+    if (!accesoBloqueado && !verificandoRol && vistaActiva === 'clientes' && !puedeVerClientes) {
+      navigate('/ordenes', { replace: true });
+    }
+  }, [accesoBloqueado, navigate, puedeVerClientes, verificandoRol, vistaActiva]);
 
   function cambiarVistaSegura(siguienteVista) {
     if (siguienteVista === 'admin' && !esAdmin) {
       return;
     }
 
-    setVistaActiva(siguienteVista);
+    if (siguienteVista === 'clientes' && !puedeVerClientes) {
+      return;
+    }
+
+    navigate(RUTA_POR_VISTA[siguienteVista] || '/ordenes');
   }
 
-  const navItemsVisibles = esAdmin
-    ? NAV_ITEMS
-    : NAV_ITEMS.filter((item) => item.key !== 'admin');
+  const navItemsVisibles = NAV_ITEMS.filter((item) => {
+    if (item.key === 'admin') {
+      return esAdmin;
+    }
+
+    if (item.key === 'clientes') {
+      return puedeVerClientes;
+    }
+
+    return true;
+  });
 
   return (
     <div className="mx-auto min-h-screen w-full max-w-md px-4 pb-24 pt-5 lg:max-w-6xl lg:px-6 lg:pb-8">
@@ -162,20 +210,30 @@ export default function App() {
       </header>
 
       <main className="lg:rounded-2xl lg:border lg:border-marca-100 lg:bg-white lg:p-5 lg:shadow-tarjeta">
-        {accesoBloqueado ? (
+        {accesoBloqueado || verificandoRol ? (
           <AccesoView onLogin={login} cargandoSesion={cargando} errorSesion={error} />
         ) : (
-          <>
-            {vistaActiva === 'ordenes' && <ListaOrdenesView />}
-            {vistaActiva === 'parte' && <ParteTrabajoView />}
-            {vistaActiva === 'clientes' && <ClientesView />}
-            {vistaActiva === 'admin' && esAdmin && <AdminView />}
-          </>
+          <Routes>
+            <Route path="/" element={<Navigate to="/ordenes" replace />} />
+            <Route path="/ordenes" element={<ListaOrdenesView rolUsuario={rolUsuario} />} />
+            <Route path="/parte" element={<ParteTrabajoView rolUsuario={rolUsuario} />} />
+            <Route
+              path="/clientes"
+              element={puedeVerClientes ? <ClientesView rolUsuario={rolUsuario} /> : <Navigate to="/ordenes" replace />}
+            />
+            <Route path="/admin" element={esAdmin ? <AdminView /> : <Navigate to="/ordenes" replace />} />
+            <Route path="*" element={<Navigate to="/ordenes" replace />} />
+          </Routes>
         )}
       </main>
 
       {!accesoBloqueado && (
-        <NavbarInferior vistaActiva={vistaActiva} onCambiarVista={cambiarVistaSegura} mostrarAdmin={esAdmin} />
+        <NavbarInferior
+          vistaActiva={vistaActiva}
+          onCambiarVista={cambiarVistaSegura}
+          mostrarAdmin={esAdmin}
+          mostrarClientes={puedeVerClientes}
+        />
       )}
     </div>
   );

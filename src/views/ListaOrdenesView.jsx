@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, CircleCheckBig, Clock3, Download, Hammer, TriangleAlert, Wrench } from 'lucide-react';
+import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { ToastEstado } from '../components/ToastEstado';
 import { useOrdenes } from '../hooks/useOrdenes';
@@ -31,25 +32,141 @@ const estilosEstado = {
 };
 
 const FILTROS_ESTADO = ['Todas', 'Pendiente', 'En Proceso', 'Pausado', 'Finalizado'];
+const BLOQUE_ORDENES_LISTADO = 20;
 const OPCIONES_ESTADO_EDITABLE = [
   { value: 'pendiente', label: 'Pendiente' },
   { value: 'en_proceso', label: 'En Proceso' },
   { value: 'pausado', label: 'Pausado' },
 ];
 
-function descargarCsv(nombreArchivo, cabeceras, filas) {
-  const separador = ';';
-  const escapar = (valor) => {
-    const texto = valor == null ? '' : String(valor);
-    if (!texto.includes(separador) && !texto.includes('"') && !texto.includes('\n')) {
-      return texto;
-    }
-    return `"${texto.replace(/"/g, '""')}"`;
+function columnaExcel(indice) {
+  let n = indice;
+  let resultado = '';
+
+  while (n > 0) {
+    const resto = (n - 1) % 26;
+    resultado = String.fromCharCode(65 + resto) + resultado;
+    n = Math.floor((n - 1) / 26);
+  }
+
+  return resultado;
+}
+
+async function descargarExcelProfesional({
+  nombreArchivo,
+  hojaNombre,
+  titulo,
+  subtitulo,
+  columnas,
+  filas,
+  resumen = [],
+}) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'SAT COTEPA';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet(hojaNombre);
+  const totalColumnas = columnas.length;
+  const ultimaColumna = columnaExcel(totalColumnas);
+
+  columnas.forEach((columna, indice) => {
+    worksheet.getColumn(indice + 1).width = columna.width || 20;
+  });
+
+  worksheet.mergeCells(`A1:${ultimaColumna}1`);
+  worksheet.getCell('A1').value = titulo;
+  worksheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
+  worksheet.getCell('A1').fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF0F172A' },
+  };
+  worksheet.getCell('A1').alignment = { vertical: 'middle', horizontal: 'left' };
+  worksheet.getRow(1).height = 28;
+
+  worksheet.mergeCells(`A2:${ultimaColumna}2`);
+  worksheet.getCell('A2').value = subtitulo;
+  worksheet.getCell('A2').font = { italic: true, size: 11, color: { argb: 'FF334155' } };
+  worksheet.getCell('A2').alignment = { vertical: 'middle', horizontal: 'left' };
+  worksheet.getRow(2).height = 20;
+
+  let filaActual = 4;
+  if (resumen.length) {
+    worksheet.getCell(`A${filaActual}`).value = 'Resumen';
+    worksheet.getCell(`A${filaActual}`).font = { bold: true, size: 11, color: { argb: 'FF0F172A' } };
+    filaActual += 1;
+
+    resumen.forEach(([etiqueta, valor]) => {
+      worksheet.getCell(`A${filaActual}`).value = etiqueta;
+      worksheet.getCell(`A${filaActual}`).font = { bold: true, size: 10, color: { argb: 'FF0F172A' } };
+      worksheet.getCell(`B${filaActual}`).value = valor;
+      worksheet.getCell(`B${filaActual}`).font = { size: 10, color: { argb: 'FF334155' } };
+      filaActual += 1;
+    });
+
+    filaActual += 1;
+  }
+
+  const filaEncabezado = filaActual;
+  columnas.forEach((columna, indice) => {
+    const celda = worksheet.getCell(filaEncabezado, indice + 1);
+    celda.value = columna.header;
+    celda.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+    celda.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1E293B' },
+    };
+    celda.alignment = { vertical: 'middle', horizontal: 'left' };
+    celda.border = {
+      top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+    };
+  });
+
+  const filaDatosInicio = filaEncabezado + 1;
+  const filasDatos = filas.length ? filas : [{ __sinDatos: 'Sin datos para los filtros actuales' }];
+
+  filasDatos.forEach((fila, indiceFila) => {
+    const numeroFila = filaDatosInicio + indiceFila;
+
+    columnas.forEach((columna, indiceColumna) => {
+      const celda = worksheet.getCell(numeroFila, indiceColumna + 1);
+      celda.value = fila[columna.key] ?? '';
+      celda.font = { size: 10, color: { argb: 'FF0F172A' } };
+      celda.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      celda.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: indiceFila % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' },
+      };
+      celda.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      };
+
+      if (columna.numFmt) {
+        celda.numFmt = columna.numFmt;
+      }
+    });
+  });
+
+  const filaDatosFin = filaDatosInicio + filasDatos.length - 1;
+  worksheet.autoFilter = {
+    from: { row: filaEncabezado, column: 1 },
+    to: { row: filaEncabezado, column: totalColumnas },
   };
 
-  const contenido = [cabeceras.map(escapar).join(separador), ...filas.map((fila) => fila.map(escapar).join(separador))].join('\n');
-  const contenidoConBom = `\uFEFF${contenido}`;
-  const blob = new Blob([contenidoConBom], { type: 'text/csv;charset=utf-8;' });
+  worksheet.views = [{ state: 'frozen', ySplit: filaEncabezado }];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
   const url = URL.createObjectURL(blob);
   const enlace = document.createElement('a');
   enlace.href = url;
@@ -58,9 +175,11 @@ function descargarCsv(nombreArchivo, cabeceras, filas) {
   enlace.click();
   document.body.removeChild(enlace);
   URL.revokeObjectURL(url);
+
+  return { filaDatosInicio, filaDatosFin };
 }
 
-function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
+function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar, puedeCrearOrdenes }) {
   const LIMITE_CATALOGO = 20;
   const [clientes, setClientes] = useState([]);
   const [equipos, setEquipos] = useState([]);
@@ -91,6 +210,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
   const busquedaEquipoDebounce = useDebounce(busquedaEquipo, 250);
   const busquedaTecnicoDebounce = useDebounce(busquedaTecnico, 250);
   const cargandoCatalogos = cargandoClientes || cargandoEquipos || cargandoTecnicos;
+  const formularioDeshabilitado = !puedeCrearOrdenes || !tieneConfiguracionSupabase() || cargandoCatalogos;
 
   useEffect(() => {
     async function cargarClientes() {
@@ -244,7 +364,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
           }}
           className="mb-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
           placeholder="Buscar cliente por nombre"
-          disabled={!tieneConfiguracionSupabase() || cargandoCatalogos}
+          disabled={formularioDeshabilitado}
         />
         <select
           required
@@ -265,7 +385,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
             }
           }}
           className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-          disabled={!tieneConfiguracionSupabase() || cargandoCatalogos}
+          disabled={formularioDeshabilitado}
         >
           <option value="">Selecciona cliente</option>
           {clientes.map((cliente) => (
@@ -299,7 +419,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
           }}
           className="mb-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
           placeholder="Buscar equipo por nombre, marca o modelo"
-          disabled={!formulario.cliente_id || !tieneConfiguracionSupabase() || cargandoCatalogos}
+          disabled={!formulario.cliente_id || formularioDeshabilitado}
         />
         <select
           name="equipo_id"
@@ -315,7 +435,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
             }
           }}
           className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-          disabled={!formulario.cliente_id || !tieneConfiguracionSupabase() || cargandoCatalogos}
+          disabled={!formulario.cliente_id || formularioDeshabilitado}
         >
           <option value="">Sin equipo</option>
           {equipos.map((equipo) => (
@@ -351,7 +471,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
           }}
           className="mb-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
           placeholder="Buscar técnico por nombre o especialidad"
-          disabled={!tieneConfiguracionSupabase() || cargandoCatalogos}
+          disabled={formularioDeshabilitado}
         />
         <select
           required
@@ -368,7 +488,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
             }
           }}
           className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-          disabled={!tieneConfiguracionSupabase() || cargandoCatalogos}
+          disabled={formularioDeshabilitado}
         >
           <option value="">Selecciona técnico</option>
           {tecnicos.map((tecnico) => (
@@ -423,18 +543,37 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar }) {
 
       <button
         type="submit"
-        disabled={accionEnCurso || !tieneConfiguracionSupabase() || cargandoCatalogos}
+        disabled={accionEnCurso || formularioDeshabilitado}
         className="w-full rounded-2xl bg-cotepa-rojo-500 px-4 py-4 text-sm font-bold text-white active:scale-95 disabled:opacity-60"
       >
-        {cargandoCatalogos ? 'Cargando catálogos...' : accionEnCurso ? 'Guardando...' : 'Crear Orden'}
+        {cargandoCatalogos
+          ? 'Cargando catálogos...'
+          : !puedeCrearOrdenes
+            ? 'Sin permisos para crear órdenes'
+            : accionEnCurso
+              ? 'Guardando...'
+              : 'Crear Orden'}
       </button>
 
       {mensaje && <p className="text-xs font-semibold text-slate-600">{mensaje}</p>}
+      {!puedeCrearOrdenes && (
+        <p className="text-xs font-semibold text-slate-600">
+          Tu rol técnico no permite crear órdenes nuevas.
+        </p>
+      )}
     </form>
   );
 }
 
-function TarjetaOrden({ orden, tecnicosActivos, accionEnCurso, onFinalizar, onActualizar, onNotificar }) {
+function TarjetaOrden({
+  orden,
+  tecnicosActivos,
+  accionEnCurso,
+  onFinalizar,
+  onActualizar,
+  onNotificar,
+  puedeEditarOrden,
+}) {
   const { icono: IconoEstado, clase } = estilosEstado[orden.estado] || estilosEstado.Pendiente;
   const [mostrarCierre, setMostrarCierre] = useState(false);
   const [mostrarEdicion, setMostrarEdicion] = useState(false);
@@ -535,81 +674,36 @@ function TarjetaOrden({ orden, tecnicosActivos, accionEnCurso, onFinalizar, onAc
 
       {orden.estado === 'Finalizado' && (
         <div className="mt-3 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg bg-white/70 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-                Tiempo empleado
-              </p>
-              <p className="text-sm font-bold text-emerald-950">
-                {orden.tiempoEmpleadoMinutos ? `${orden.tiempoEmpleadoMinutos} min` : 'No registrado'}
-              </p>
-            </div>
-            <div className="rounded-lg bg-white/70 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-                Coste materiales
-              </p>
-              <p className="text-sm font-bold text-emerald-950">
-                {orden.costeMateriales > 0 ? `${orden.costeMateriales.toFixed(2)} €` : 'Sin coste'}
-              </p>
-            </div>
-          </div>
-
-          <p>
-            <span className="font-semibold">Tareas realizadas:</span>{' '}
-            {orden.tareasRealizadas || 'Sin detalle de cierre'}
-          </p>
-          {Array.isArray(orden.materiales) && orden.materiales.length > 0 && (
-            <div>
-              <p className="font-semibold">Materiales utilizados:</p>
-              <ul className="mt-1 space-y-1">
-                {orden.materiales.map((material) => (
-                  <li key={material.id} className="rounded-lg bg-white/70 px-2 py-2 text-xs text-emerald-950">
-                    {material.nombre_material} · {material.cantidad || 1} ud
-                    {material.precio_unitario !== null && material.precio_unitario !== undefined
-                      ? ` · ${material.precio_unitario} €`
-                      : ''}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {orden.fotoUrl && (
-            <a
-              href={orden.fotoUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white"
-            >
-              Ver foto de cierre
-            </a>
-          )}
           {orden.informePdfUrl && (
             <a
               href={orden.informePdfUrl}
-              target="_blank"
-              rel="noreferrer"
+              download={`informe-${orden.numero_ticket || orden.id}.pdf`}
               className="inline-flex rounded-lg bg-marca-900 px-3 py-2 text-xs font-bold text-white"
             >
-              Ver informe PDF
+              Descargar informe PDF
             </a>
+          )}
+          {!orden.informePdfUrl && (
+            <p className="text-xs font-semibold text-emerald-800">Informe PDF no disponible.</p>
           )}
         </div>
       )}
 
       {orden.estado !== 'Finalizado' && (
         <div className="mt-3 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setMostrarEdicion((previo) => !previo);
-                setMensajeEdicion('');
-              }}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 active:scale-95"
-            >
-              {mostrarEdicion ? 'Cancelar edición' : 'Editar orden'}
-            </button>
-
+          <div className={`grid gap-2 ${puedeEditarOrden ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {puedeEditarOrden && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMostrarEdicion((previo) => !previo);
+                  setMensajeEdicion('');
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 active:scale-95"
+              >
+                {mostrarEdicion ? 'Cancelar edición' : 'Editar orden'}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setMostrarCierre((previo) => !previo)}
@@ -619,7 +713,7 @@ function TarjetaOrden({ orden, tecnicosActivos, accionEnCurso, onFinalizar, onAc
             </button>
           </div>
 
-          {mostrarEdicion && (
+          {mostrarEdicion && puedeEditarOrden && (
             <form onSubmit={guardarEdicion} className="space-y-2 rounded-xl border border-marca-100 bg-marca-50 p-3">
               <label className="block">
                 <span className="mb-1 block text-xs font-semibold text-slate-700">Técnico *</span>
@@ -737,17 +831,20 @@ function TarjetaOrden({ orden, tecnicosActivos, accionEnCurso, onFinalizar, onAc
   );
 }
 
-export function ListaOrdenesView() {
+export function ListaOrdenesView({ rolUsuario }) {
   const [tecnicosActivos, setTecnicosActivos] = useState([]);
   const [toast, setToast] = useState(null);
   const [exportandoZip, setExportandoZip] = useState(false);
+  const [filtroClienteAnalisis, setFiltroClienteAnalisis] = useState('todos');
+  const [busquedaOrdenes, setBusquedaOrdenes] = useState('');
+  const [cantidadOrdenesVisibles, setCantidadOrdenesVisibles] = useState(BLOQUE_ORDENES_LISTADO);
+  const busquedaOrdenesDebounce = useDebounce(busquedaOrdenes, 200);
   const {
     ordenes,
     ordenesFiltradas,
     cargando,
     error,
     accionEnCurso,
-    resumenPorEstado,
     filtroEstado,
     setFiltroEstado,
     crearOrdenDesdeFormulario,
@@ -780,7 +877,73 @@ export function ListaOrdenesView() {
     });
   }
 
-  const ordenesFinalizadas = ordenes.filter((orden) => orden.estado === 'Finalizado');
+  const clientesAnalisis = useMemo(() => {
+    const mapa = new Map();
+    ordenes.forEach((orden) => {
+      const id = orden.clienteId || '';
+      const nombre = orden.cliente || 'Cliente sin nombre';
+      if (id && !mapa.has(id)) {
+        mapa.set(id, nombre);
+      }
+    });
+
+    return Array.from(mapa.entries())
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es-ES'));
+  }, [ordenes]);
+
+  useEffect(() => {
+    if (filtroClienteAnalisis === 'todos') {
+      return;
+    }
+
+    const existeCliente = clientesAnalisis.some((cliente) => cliente.id === filtroClienteAnalisis);
+    if (!existeCliente) {
+      setFiltroClienteAnalisis('todos');
+    }
+  }, [clientesAnalisis, filtroClienteAnalisis]);
+
+  useEffect(() => {
+    setCantidadOrdenesVisibles(BLOQUE_ORDENES_LISTADO);
+  }, [filtroEstado, ordenes.length, busquedaOrdenesDebounce]);
+
+  const ordenesAnalisis = filtroClienteAnalisis === 'todos'
+    ? ordenesFiltradas
+    : ordenesFiltradas.filter((orden) => orden.clienteId === filtroClienteAnalisis);
+
+  const resumenAnalisis = ordenesAnalisis.reduce(
+    (acc, orden) => {
+      acc[orden.estado] = (acc[orden.estado] || 0) + 1;
+      return acc;
+    },
+    { Pendiente: 0, 'En Proceso': 0, Pausado: 0, Finalizado: 0 },
+  );
+
+  const ordenesFinalizadas = ordenesAnalisis.filter((orden) => orden.estado === 'Finalizado');
+  const informesDisponibles = ordenesFinalizadas.filter((orden) => orden.informePdfUrl).length;
+  const terminoBusqueda = busquedaOrdenesDebounce.trim().toLowerCase();
+  const ordenesListado = terminoBusqueda
+    ? ordenesFiltradas.filter((orden) => {
+      const campos = [
+        orden.numero_ticket,
+        orden.cliente,
+        orden.equipo,
+        orden.tecnico,
+        orden.descripcion,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return campos.includes(terminoBusqueda);
+    })
+    : ordenesFiltradas;
+  const totalOrdenesFiltradas = ordenesListado.length;
+  const ordenesPaginadas = ordenesListado.slice(0, cantidadOrdenesVisibles);
+  const hayMasOrdenes = totalOrdenesFiltradas > cantidadOrdenesVisibles;
+  const esTecnico = rolUsuario === 'tecnico';
+  const puedeCrearOrdenes = rolUsuario !== 'tecnico';
+  const puedeEditarOrden = rolUsuario !== 'tecnico';
   const mttrMinutos = ordenesFinalizadas.length
     ? Math.round(
       ordenesFinalizadas.reduce((acc, orden) => acc + Number(orden.tiempoEmpleadoMinutos || 0), 0)
@@ -798,53 +961,109 @@ export function ListaOrdenesView() {
       }).length / ordenesFinalizadas.length) * 100,
     )
     : 0;
-  const firstTimeFixProxy = ordenes.length
-    ? Math.round((ordenesFinalizadas.length / ordenes.length) * 100)
+  const firstTimeFixProxy = ordenesAnalisis.length
+    ? Math.round((ordenesFinalizadas.length / ordenesAnalisis.length) * 100)
     : 0;
   const costeTotalMateriales = ordenesFinalizadas
     .reduce((acc, orden) => acc + Number(orden.costeMateriales || 0), 0)
     .toFixed(2);
 
-  function exportarOrdenesCsv() {
-    const filas = ordenes.map((orden) => [
-      orden.numero_ticket || '',
-      orden.cliente,
-      orden.equipo,
-      orden.tecnico,
-      orden.estado,
-      orden.prioridad,
-      orden.tiempoEmpleadoMinutos || '',
-      orden.costeMateriales?.toFixed ? orden.costeMateriales.toFixed(2) : orden.costeMateriales,
-      orden.fechaInicioIso || '',
-      orden.fechaFinIso || '',
-      orden.informePdfUrl || '',
-    ]);
+  async function exportarOrdenesExcel() {
+    try {
+      const filas = ordenesAnalisis.map((orden) => ({
+        ticket: orden.numero_ticket || '',
+        cliente: orden.cliente,
+        equipo: orden.equipo,
+        tecnico: orden.tecnico,
+        estado: orden.estado,
+        prioridad: orden.prioridad,
+        tiempo_min: Number(orden.tiempoEmpleadoMinutos || 0),
+        coste_materiales: Number(orden.costeMateriales || 0),
+        fecha_inicio: orden.fechaInicioIso ? new Date(orden.fechaInicioIso).toLocaleString('es-ES') : '',
+        fecha_fin: orden.fechaFinIso ? new Date(orden.fechaFinIso).toLocaleString('es-ES') : '',
+        informe_pdf: orden.informePdfUrl || '',
+      }));
 
-    descargarCsv(
-      `ordenes-sat-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['ticket', 'cliente', 'equipo', 'tecnico', 'estado', 'prioridad', 'tiempo_min', 'coste_materiales', 'fecha_inicio', 'fecha_fin', 'informe_pdf'],
-      filas,
-    );
+      await descargarExcelProfesional({
+        nombreArchivo: `ordenes-sat-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        hojaNombre: 'Ordenes SAT',
+        titulo: 'SAT COTEPA · Exportación profesional de órdenes',
+        subtitulo: `Generado el ${new Date().toLocaleString('es-ES')} · Cliente: ${filtroClienteAnalisis === 'todos' ? 'Todos' : (clientesAnalisis.find((c) => c.id === filtroClienteAnalisis)?.nombre || 'Filtrado')}`,
+        columnas: [
+          { key: 'ticket', header: 'Ticket', width: 14 },
+          { key: 'cliente', header: 'Cliente', width: 28 },
+          { key: 'equipo', header: 'Equipo', width: 24 },
+          { key: 'tecnico', header: 'Técnico', width: 24 },
+          { key: 'estado', header: 'Estado', width: 16 },
+          { key: 'prioridad', header: 'Prioridad', width: 14 },
+          { key: 'tiempo_min', header: 'Tiempo (min)', width: 14, numFmt: '0' },
+          { key: 'coste_materiales', header: 'Coste materiales (€)', width: 20, numFmt: '#,##0.00' },
+          { key: 'fecha_inicio', header: 'Fecha inicio', width: 22 },
+          { key: 'fecha_fin', header: 'Fecha fin', width: 22 },
+          { key: 'informe_pdf', header: 'URL informe PDF', width: 38 },
+        ],
+        filas,
+        resumen: [
+          ['Órdenes en análisis', ordenesAnalisis.length],
+          ['Órdenes finalizadas', ordenesFinalizadas.length],
+          ['MTTR (min)', mttrMinutos],
+          ['Coste materiales total (€)', Number(costeTotalMateriales)],
+        ],
+      });
+
+      notificar({
+        tipo: 'exito',
+        titulo: 'Excel generado',
+        descripcion: 'Se descargó un archivo .xlsx con formato profesional.',
+      });
+    } catch (err) {
+      notificar({
+        tipo: 'error',
+        titulo: 'No se pudo exportar órdenes',
+        descripcion: err.message || 'No se pudo generar el archivo Excel de órdenes.',
+      });
+    }
   }
 
-  function exportarKpisCsv() {
-    const filas = [
-      ['Total órdenes', ordenes.length],
-      ['Órdenes finalizadas', ordenesFinalizadas.length],
-      ['MTTR (min)', mttrMinutos],
-      ['SLA <=48h (%)', cumplimientoSla48h],
-      ['First Time Fix proxy (%)', firstTimeFixProxy],
-      ['Coste materiales total (€)', costeTotalMateriales],
-    ];
-    descargarCsv(
-      `kpi-sat-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['kpi', 'valor'],
-      filas,
-    );
+  async function exportarKpisExcel() {
+    try {
+      const filas = [
+        { kpi: 'Total órdenes', valor: ordenesAnalisis.length },
+        { kpi: 'Órdenes finalizadas', valor: ordenesFinalizadas.length },
+        { kpi: 'MTTR (min)', valor: mttrMinutos },
+        { kpi: 'SLA <=48h (%)', valor: cumplimientoSla48h },
+        { kpi: 'First Time Fix proxy (%)', valor: firstTimeFixProxy },
+        { kpi: 'Coste materiales total (€)', valor: Number(costeTotalMateriales) },
+      ];
+
+      await descargarExcelProfesional({
+        nombreArchivo: `kpi-sat-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        hojaNombre: 'KPIs SAT',
+        titulo: 'SAT COTEPA · Informe KPI profesional',
+        subtitulo: `Generado el ${new Date().toLocaleString('es-ES')} · Cliente: ${filtroClienteAnalisis === 'todos' ? 'Todos' : (clientesAnalisis.find((c) => c.id === filtroClienteAnalisis)?.nombre || 'Filtrado')}`,
+        columnas: [
+          { key: 'kpi', header: 'Indicador', width: 36 },
+          { key: 'valor', header: 'Valor', width: 20 },
+        ],
+        filas,
+      });
+
+      notificar({
+        tipo: 'exito',
+        titulo: 'KPI Excel generado',
+        descripcion: 'Se descargó un KPI en formato .xlsx con diseño profesional.',
+      });
+    } catch (err) {
+      notificar({
+        tipo: 'error',
+        titulo: 'No se pudo exportar KPI',
+        descripcion: err.message || 'No se pudo generar el archivo Excel de KPI.',
+      });
+    }
   }
 
   async function exportarInformesZip() {
-    const informes = ordenesFiltradas.filter((orden) => orden.estado === 'Finalizado' && orden.informePdfUrl);
+    const informes = ordenesFinalizadas.filter((orden) => orden.informePdfUrl);
 
     if (!informes.length) {
       notificar({
@@ -922,71 +1141,123 @@ export function ListaOrdenesView() {
       )}
 
       <header className="rounded-2xl bg-marca-900 p-4 text-white shadow-lg lg:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-bold">Órdenes de Trabajo</h2>
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold">Órdenes de Trabajo</h2>
+            <p className="mt-1 text-sm text-slate-200">
+              Consulta, crea y actualiza el estado de cada avería desde el móvil.
+            </p>
+          </div>
+        </div>
+
+        <div className={`mt-4 grid gap-2 ${esTecnico ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          <article className="rounded-xl border border-white/20 bg-white/10 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-200">Informes PDF</p>
+              <Download className="h-4 w-4 text-white" />
+            </div>
+            <p className="mt-2 text-xl font-extrabold text-white">{informesDisponibles}</p>
+            <p className="text-xs text-slate-200">listos para incluir en ZIP</p>
             <button
               type="button"
               onClick={exportarInformesZip}
               disabled={exportandoZip}
-              className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+              className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-white px-3 py-2 text-xs font-bold text-marca-900 disabled:opacity-60"
             >
-              <Download className="h-4 w-4" />
-              {exportandoZip ? 'Generando ZIP...' : 'Exportar informes ZIP'}
+              {exportandoZip ? 'Generando ZIP...' : 'Descargar ZIP de informes'}
             </button>
-            <button
-              type="button"
-              onClick={exportarKpisCsv}
-              className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white"
-            >
-              <BarChart3 className="h-4 w-4" />
-              Exportar KPI
-            </button>
-            <button
-              type="button"
-              onClick={exportarOrdenesCsv}
-              className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white"
-            >
-              <Download className="h-4 w-4" />
-              Exportar órdenes
-            </button>
-          </div>
-        </div>
-        <p className="mt-1 text-sm text-slate-200">
-          Consulta, crea y actualiza el estado de cada avería desde el móvil.
-        </p>
+          </article>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs font-bold lg:grid-cols-4">
-          <div className="rounded-xl bg-white/10 p-2">
-            <p className="text-slate-300">MTTR</p>
-            <p className="text-base text-white">{mttrMinutos} min</p>
-          </div>
-          <div className="rounded-xl bg-white/10 p-2">
-            <p className="text-slate-300">SLA 48h</p>
-            <p className="text-base text-white">{cumplimientoSla48h}%</p>
-          </div>
-          <div className="rounded-xl bg-white/10 p-2">
-            <p className="text-slate-300">FTF proxy</p>
-            <p className="text-base text-white">{firstTimeFixProxy}%</p>
-          </div>
-          <div className="rounded-xl bg-white/10 p-2">
-            <p className="text-slate-300">Coste mat.</p>
-            <p className="text-base text-white">{costeTotalMateriales} €</p>
-          </div>
+          {!esTecnico && (
+            <article className="rounded-xl border border-white/20 bg-white/10 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-200">KPI</p>
+                <BarChart3 className="h-4 w-4 text-white" />
+              </div>
+              <p className="mt-2 text-xl font-extrabold text-white">{ordenesFinalizadas.length}</p>
+              <p className="text-xs text-slate-200">órdenes finalizadas analizadas</p>
+              <button
+                type="button"
+                onClick={exportarKpisExcel}
+                className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-white px-3 py-2 text-xs font-bold text-marca-900"
+              >
+                Descargar KPI Excel
+              </button>
+            </article>
+          )}
+
+          <article className="rounded-xl border border-white/20 bg-white/10 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-200">Órdenes</p>
+              <Download className="h-4 w-4 text-white" />
+            </div>
+            <p className="mt-2 text-xl font-extrabold text-white">{ordenes.length}</p>
+            <p className="text-xs text-slate-200">registros totales exportables</p>
+            <button
+              type="button"
+              onClick={exportarOrdenesExcel}
+              className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-white px-3 py-2 text-xs font-bold text-marca-900"
+            >
+              Descargar Excel de órdenes
+            </button>
+          </article>
         </div>
+
+        <div className="mt-3 rounded-xl border border-white/15 bg-white/10 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-200">Ámbito de análisis</p>
+            <span className="text-[11px] font-semibold text-slate-300">{ordenesAnalisis.length} órdenes en análisis</span>
+          </div>
+          <label className="mt-2 block">
+            <span className="mb-1 block text-xs font-semibold text-slate-200">Filtrar por cliente</span>
+            <select
+              value={filtroClienteAnalisis}
+              onChange={(evento) => setFiltroClienteAnalisis(evento.target.value)}
+              className="w-full rounded-lg border border-white/20 bg-marca-900 px-3 py-2 text-sm text-white"
+            >
+              <option value="todos">Todos los clientes</option>
+              {clientesAnalisis.map((cliente) => (
+                <option key={cliente.id} value={cliente.id}>
+                  {cliente.nombre}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {!esTecnico && (
+          <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs font-bold lg:grid-cols-4">
+            <div className="rounded-xl bg-white/10 p-2">
+              <p className="text-slate-300">MTTR</p>
+              <p className="text-base text-white">{mttrMinutos} min</p>
+            </div>
+            <div className="rounded-xl bg-white/10 p-2">
+              <p className="text-slate-300">SLA 48h</p>
+              <p className="text-base text-white">{cumplimientoSla48h}%</p>
+            </div>
+            <div className="rounded-xl bg-white/10 p-2">
+              <p className="text-slate-300">FTF proxy</p>
+              <p className="text-base text-white">{firstTimeFixProxy}%</p>
+            </div>
+            <div className="rounded-xl bg-white/10 p-2">
+              <p className="text-slate-300">Coste mat.</p>
+              <p className="text-base text-white">{costeTotalMateriales} €</p>
+            </div>
+          </div>
+        )}
 
         <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-bold">
           <div className="rounded-xl bg-white/10 p-2">
             <p className="text-slate-300">Pendientes</p>
-            <p className="text-base text-white">{resumenPorEstado.Pendiente}</p>
+            <p className="text-base text-white">{resumenAnalisis.Pendiente}</p>
           </div>
           <div className="rounded-xl bg-white/10 p-2">
             <p className="text-slate-300">En Proceso</p>
-            <p className="text-base text-white">{resumenPorEstado['En Proceso']}</p>
+            <p className="text-base text-white">{resumenAnalisis['En Proceso']}</p>
           </div>
           <div className="rounded-xl bg-white/10 p-2">
             <p className="text-slate-300">Finalizadas</p>
-            <p className="text-base text-white">{resumenPorEstado.Finalizado}</p>
+            <p className="text-base text-white">{resumenAnalisis.Finalizado}</p>
           </div>
         </div>
 
@@ -1004,6 +1275,18 @@ export function ListaOrdenesView() {
             </button>
           ))}
         </div>
+
+        <div className="mt-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-slate-200">Buscar orden</span>
+            <input
+              value={busquedaOrdenes}
+              onChange={(evento) => setBusquedaOrdenes(evento.target.value)}
+              className="w-full rounded-lg border border-white/20 bg-marca-900 px-3 py-2 text-sm text-white placeholder:text-slate-300"
+              placeholder="Ticket, cliente, equipo o técnico"
+            />
+          </label>
+        </div>
       </header>
 
       <div className="lg:grid lg:grid-cols-12 lg:gap-4">
@@ -1012,11 +1295,12 @@ export function ListaOrdenesView() {
             onCrear={crearOrdenDesdeFormulario}
             accionEnCurso={accionEnCurso}
             onNotificar={notificar}
+            puedeCrearOrdenes={puedeCrearOrdenes}
           />
         </div>
 
         <div className="space-y-3 pb-20 lg:col-span-8 lg:pb-0">
-          {ordenesFiltradas.map((orden) => (
+          {ordenesPaginadas.map((orden) => (
             <TarjetaOrden
               key={orden.id}
               orden={orden}
@@ -1025,13 +1309,33 @@ export function ListaOrdenesView() {
               onFinalizar={finalizarOrden}
               onActualizar={actualizarOrden}
               onNotificar={notificar}
+              puedeEditarOrden={puedeEditarOrden}
             />
           ))}
 
-          {!ordenesFiltradas.length && (
+          {totalOrdenesFiltradas > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold">
+                  Mostrando {Math.min(cantidadOrdenesVisibles, totalOrdenesFiltradas)} de {totalOrdenesFiltradas} órdenes.
+                </p>
+                {hayMasOrdenes && (
+                  <button
+                    type="button"
+                    onClick={() => setCantidadOrdenesVisibles((previo) => previo + BLOQUE_ORDENES_LISTADO)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800"
+                  >
+                    Cargar más órdenes
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!ordenesListado.length && (
             <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3 text-sm font-medium text-slate-600">
               <TriangleAlert className="h-4 w-4" />
-              No hay órdenes disponibles para el filtro seleccionado.
+              No hay órdenes disponibles con los filtros y búsqueda seleccionados.
             </div>
           )}
         </div>

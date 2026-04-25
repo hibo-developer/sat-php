@@ -6,7 +6,7 @@ import {
 } from '../services/catalogosService';
 import { listarMaterialesInventario } from '../services/inventarioMaterialesService';
 import { crearParteTrabajo, obtenerOrdenesAbiertasParaParte } from '../services/parteTrabajoService';
-import { generarYEnviarInformeParte } from '../services/parteTrabajoInformeService';
+import { generarYSubirInformeParte } from '../services/parteTrabajoInformeService';
 import { tieneConfiguracionSupabase } from '../services/supabaseClient';
 
 function obtenerUbicacionActual() {
@@ -127,7 +127,6 @@ const FORM_INICIAL = {
   materialesTexto: '',
   tiempo_empleado: '60',
   prioridad: 'media',
-  destino_email: 'sat@cotepa.com',
 };
 
 export function ParteTrabajoView() {
@@ -350,7 +349,18 @@ export function ParteTrabajoView() {
       });
       setMensaje('Inicio registrado con geolocalización.');
     } catch (err) {
-      setError(err.message || 'No se pudo iniciar el seguimiento de tiempo.');
+      const inicioIso = new Date().toISOString();
+      setSeguimientoTiempo({
+        inicioIso,
+        finIso: null,
+        ubicacionInicio: null,
+        ubicacionFin: null,
+        distanciaMetros: null,
+        minutosGeo: null,
+      });
+      setFormulario((prev) => ({ ...prev, tiempo_empleado: '1' }));
+      setMensaje('Inicio registrado con hora actual (sin geolocalización).');
+      setError('');
     } finally {
       setCapturandoTiempo(false);
     }
@@ -394,7 +404,19 @@ export function ParteTrabajoView() {
       setFormulario((prev) => ({ ...prev, tiempo_empleado: String(minutosCalculados) }));
       setMensaje('Fin registrado. Tiempo empleado calculado automáticamente.');
     } catch (err) {
-      setError(err.message || 'No se pudo finalizar el seguimiento de tiempo.');
+      const finIso = new Date().toISOString();
+      const minutosCalculados = redondearMinutos(seguimientoTiempo.inicioIso, finIso);
+
+      setSeguimientoTiempo((prev) => ({
+        ...prev,
+        finIso,
+        ubicacionFin: null,
+        distanciaMetros: null,
+        minutosGeo: minutosCalculados,
+      }));
+      setFormulario((prev) => ({ ...prev, tiempo_empleado: String(minutosCalculados) }));
+      setMensaje('Fin registrado con hora actual (sin geolocalización). Tiempo empleado calculado automáticamente.');
+      setError('');
     } finally {
       setCapturandoTiempo(false);
     }
@@ -463,7 +485,7 @@ export function ParteTrabajoView() {
         .filter((bloque) => (bloque || '').trim())
         .join('\n');
 
-      const informe = await generarYEnviarInformeParte({
+      const informe = await generarYSubirInformeParte({
         parte,
         formulario: {
           ...formulario,
@@ -474,12 +496,11 @@ export function ParteTrabajoView() {
         equipoNombre: equipoSeleccionado?.nombre || 'Sin equipo',
         tecnicoNombre: tecnicoSeleccionado?.nombre || 'Tecnico no identificado',
         firmaUrl: parte.firma_url || '',
-        destinoEmail: formulario.destino_email,
         fotosIntervencionUrls: parte.fotos_intervencion_urls || [],
       });
 
       setMensaje(
-        `Parte registrado. Informe PDF generado y envio preparado a ${informe.destino} (${informe.metodoEnvio}).`,
+        `Parte registrado. Informe PDF disponible: ${informe.pdfUrl}`,
       );
       setFormulario(FORM_INICIAL);
       setSeguimientoTiempo({
@@ -793,15 +814,10 @@ export function ParteTrabajoView() {
         </label>
 
         <label className="block lg:col-span-2">
-          <span className="mb-1 block text-xs font-semibold text-slate-700">Enviar informe a *</span>
-          <input
-            required
-            type="email"
-            value={formulario.destino_email}
-            onChange={(e) => setFormulario((prev) => ({ ...prev, destino_email: e.target.value }))}
-            className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-            placeholder="correo@dominio.com"
-          />
+          <span className="mb-1 block text-xs font-semibold text-slate-700">Informe PDF</span>
+          <p className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+            Al guardar, el informe en PDF se subirá automáticamente al almacenamiento. El administrador podrá descargarlo desde el panel SAT.
+          </p>
         </label>
 
         <div className="rounded-xl border border-slate-300 bg-slate-50 p-3">

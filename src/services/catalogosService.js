@@ -1,5 +1,52 @@
 import { obtenerClienteSupabase } from './supabaseClient';
 
+async function asegurarRegistroTecnicoParaAdminActual(supabase) {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError) {
+    return;
+  }
+
+  const userId = authData?.user?.id;
+  if (!userId) {
+    return;
+  }
+
+  const { data: usuarioSat, error: usuarioSatError } = await supabase
+    .from('usuarios_sat')
+    .select('rol, nombre_visible')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (usuarioSatError || usuarioSat?.rol !== 'admin') {
+    return;
+  }
+
+  const { data: tecnicoActual, error: tecnicoError } = await supabase
+    .from('tecnicos')
+    .select('id, activo')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (tecnicoError) {
+    return;
+  }
+
+  if (!tecnicoActual) {
+    const nombreAdmin = (usuarioSat.nombre_visible || authData.user.email || 'Administrador SAT').trim();
+    await supabase.from('tecnicos').insert({
+      nombre: nombreAdmin,
+      especialidad: 'Administración SAT',
+      activo: true,
+      user_id: userId,
+    });
+    return;
+  }
+
+  if (!tecnicoActual.activo) {
+    await supabase.from('tecnicos').update({ activo: true }).eq('id', tecnicoActual.id);
+  }
+}
+
 export async function obtenerClientes(opciones = {}) {
   const { busqueda = '', limite = 20, pagina = 1 } = opciones;
   const supabase = obtenerClienteSupabase();
@@ -32,6 +79,7 @@ export async function obtenerClientes(opciones = {}) {
 export async function obtenerTecnicosActivos(opciones = {}) {
   const { busqueda = '', limite = 20, pagina = 1 } = opciones;
   const supabase = obtenerClienteSupabase();
+  await asegurarRegistroTecnicoParaAdminActual(supabase);
   const desde = (pagina - 1) * limite;
   const hasta = desde + limite - 1;
 
