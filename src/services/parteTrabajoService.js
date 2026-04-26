@@ -5,6 +5,7 @@ import {
   validarPrioridad,
   validarTextoRequerido,
 } from './satValidation';
+import { crearOrdenTrabajo } from './workOrderService';
 
 function parsearMateriales(textoMateriales) {
   if (!textoMateriales.trim()) {
@@ -228,7 +229,8 @@ export async function obtenerOrdenesAbiertasParaParte(filtros = {}) {
 
 export async function crearParteTrabajo(payload) {
   const supabase = obtenerClienteSupabase();
-  const ordenId = limpiarTexto(payload.orden_id);
+  const ordenIdEntrada = limpiarTexto(payload.orden_id);
+  let ordenIdTrabajo = ordenIdEntrada;
   const clienteId = limpiarTexto(payload.cliente_id);
   const equipoId = limpiarTexto(payload.equipo_id) || null;
   const tecnicoId = limpiarTexto(payload.tecnico_id);
@@ -244,10 +246,6 @@ export async function crearParteTrabajo(payload) {
   const fechaInicio = resolverFechaIso(payload.seguimientoTiempo?.inicioIso, ahoraIso);
   const fechaFin = resolverFechaIso(payload.seguimientoTiempo?.finIso, ahoraIso);
 
-  if (!ordenId) {
-    throw new Error('Debes seleccionar una orden abierta para registrar el parte.');
-  }
-
   if (!clienteId) {
     throw new Error('Debes seleccionar un cliente para registrar el parte.');
   }
@@ -258,36 +256,6 @@ export async function crearParteTrabajo(payload) {
 
   if (!firmaEntrada) {
     throw new Error('La firma del cliente es obligatoria para registrar el parte.');
-  }
-
-  const { data: ordenActual, error: ordenActualError } = await supabase
-    .from('ordenes_trabajo')
-    .select('id, cliente_id, equipo_id, tecnico_id, estado')
-    .eq('id', ordenId)
-    .maybeSingle();
-
-  if (ordenActualError) {
-    throw new Error(`No se pudo validar la orden seleccionada: ${ordenActualError.message}`);
-  }
-
-  if (!ordenActual) {
-    throw new Error('La orden seleccionada no existe.');
-  }
-
-  if (ordenActual.estado === 'finalizado') {
-    throw new Error('La orden seleccionada ya esta finalizada. El parte debe registrarse sobre una orden abierta.');
-  }
-
-  if (ordenActual.cliente_id !== clienteId) {
-    throw new Error('La orden seleccionada no pertenece al cliente del parte.');
-  }
-
-  if (ordenActual.tecnico_id !== tecnicoId) {
-    throw new Error('La orden seleccionada no esta asignada al tecnico elegido.');
-  }
-
-  if ((ordenActual.equipo_id || null) !== equipoId) {
-    throw new Error('El equipo del parte no coincide con el equipo de la orden seleccionada.');
   }
 
   const [clienteRsp, tecnicoRsp, equipoRsp] = await Promise.all([
@@ -328,6 +296,50 @@ export async function crearParteTrabajo(payload) {
 
   if (equipoRsp.data && equipoRsp.data.cliente_id !== clienteId) {
     throw new Error('El equipo seleccionado no pertenece al cliente del parte.');
+  }
+
+  if (ordenIdEntrada) {
+    const { data: ordenActual, error: ordenActualError } = await supabase
+      .from('ordenes_trabajo')
+      .select('id, cliente_id, equipo_id, tecnico_id, estado')
+      .eq('id', ordenIdEntrada)
+      .maybeSingle();
+
+    if (ordenActualError) {
+      throw new Error(`No se pudo validar la orden seleccionada: ${ordenActualError.message}`);
+    }
+
+    if (!ordenActual) {
+      throw new Error('La orden seleccionada no existe.');
+    }
+
+    if (ordenActual.estado === 'finalizado') {
+      throw new Error('La orden seleccionada ya esta finalizada. El parte debe registrarse sobre una orden abierta.');
+    }
+
+    if (ordenActual.cliente_id !== clienteId) {
+      throw new Error('La orden seleccionada no pertenece al cliente del parte.');
+    }
+
+    if (ordenActual.tecnico_id !== tecnicoId) {
+      throw new Error('La orden seleccionada no esta asignada al tecnico elegido.');
+    }
+
+    if ((ordenActual.equipo_id || null) !== equipoId) {
+      throw new Error('El equipo del parte no coincide con el equipo de la orden seleccionada.');
+    }
+  } else {
+    const ordenImprevista = await crearOrdenTrabajo({
+      cliente_id: clienteId,
+      equipo_id: equipoId,
+      tecnico_id: tecnicoId,
+      descripcion_averia: descripcionProblema,
+      prioridad,
+      estado: 'pendiente',
+      fecha_inicio: fechaInicio,
+    });
+
+    ordenIdTrabajo = ordenImprevista.id;
   }
 
   const materialesInventarioNormalizados = materialesInventarioEntrada.map((item, indice) => {
@@ -399,7 +411,7 @@ export async function crearParteTrabajo(payload) {
     fotos: fotosIntervencionEntrada,
     clienteId,
     tecnicoId,
-    ordenId,
+    ordenId: ordenIdTrabajo,
   });
 
   const bloquesTareas = [resumenGeo || 'Parte registrado desde movilidad'];
@@ -422,7 +434,7 @@ export async function crearParteTrabajo(payload) {
   const { data: orden, error: errorOrden } = await supabase
     .from('ordenes_trabajo')
     .update(ordenPayload)
-    .eq('id', ordenId)
+    .eq('id', ordenIdTrabajo)
     .select()
     .single();
 

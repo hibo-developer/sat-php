@@ -1,4 +1,5 @@
 import { obtenerClienteSupabase } from './supabaseClient';
+import { traducirErrorSupabase } from './erroresSupabase';
 
 export async function listarClientes() {
   const supabase = obtenerClienteSupabase();
@@ -9,7 +10,7 @@ export async function listarClientes() {
     .order('created_at', { ascending: false });
 
   if (error) {
-    throw new Error(`No se pudieron obtener los clientes: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudieron obtener los clientes'));
   }
 
   return data || [];
@@ -21,7 +22,7 @@ export async function crearCliente(payload) {
   const { data, error } = await supabase.from('clientes').insert(payload).select().single();
 
   if (error) {
-    throw new Error(`No se pudo crear el cliente: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo crear el cliente'));
   }
 
   return data;
@@ -38,7 +39,7 @@ export async function actualizarCliente(idCliente, payload) {
     .single();
 
   if (error) {
-    throw new Error(`No se pudo actualizar el cliente: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo actualizar el cliente'));
   }
 
   return data;
@@ -50,6 +51,6 @@ export async function eliminarCliente(idCliente) {
   const { error } = await supabase.from('clientes').delete().eq('id', idCliente);
 
   if (error) {
-    throw new Error(`No se pudo eliminar el cliente: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo eliminar el cliente'));
   }
 }

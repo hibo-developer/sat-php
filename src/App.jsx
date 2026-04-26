@@ -7,13 +7,15 @@ import logoCotepa from './assets/cotepa.jpg';
 import { AdminView } from './views/AdminView';
 import { AccesoView } from './views/AccesoView';
 import { ClientesView } from './views/ClientesView';
+import { InventarioView } from './views/InventarioView';
 import { ListaOrdenesView } from './views/ListaOrdenesView';
 import { ParteTrabajoView } from './views/ParteTrabajoView';
 
 const TITULOS = {
   ordenes: 'Panel SAT',
   parte: 'Nuevo Parte',
-  clientes: 'Clientes',
+  clientes: 'Clientes y Equipos',
+  inventario: 'Inventario de Materiales',
   admin: 'Administración',
 };
 
@@ -21,6 +23,7 @@ const NAV_ITEMS = [
   { key: 'ordenes', label: 'Órdenes' },
   { key: 'parte', label: 'Parte' },
   { key: 'clientes', label: 'Clientes' },
+  { key: 'inventario', label: 'Inventario' },
   { key: 'admin', label: 'Admin' },
 ];
 
@@ -28,6 +31,7 @@ const RUTA_POR_VISTA = {
   ordenes: '/ordenes',
   parte: '/parte',
   clientes: '/clientes',
+  inventario: '/inventario',
   admin: '/admin',
 };
 
@@ -38,6 +42,10 @@ function obtenerVistaDesdeRuta(pathname) {
 
   if (pathname.startsWith('/clientes')) {
     return 'clientes';
+  }
+
+  if (pathname.startsWith('/inventario')) {
+    return 'inventario';
   }
 
   if (pathname.startsWith('/admin')) {
@@ -58,6 +66,7 @@ export default function App() {
   const esAdmin = rolUsuario === 'admin';
   const esTecnico = rolUsuario === 'tecnico';
   const puedeVerClientes = rolUsuario !== 'tecnico';
+  const puedeVerInventario = rolUsuario !== 'tecnico';
   const vistaActiva = obtenerVistaDesdeRuta(location.pathname);
   const tituloActual = accesoBloqueado || verificandoRol
     ? 'Acceso'
@@ -124,12 +133,22 @@ export default function App() {
     }
   }, [accesoBloqueado, navigate, puedeVerClientes, verificandoRol, vistaActiva]);
 
+  useEffect(() => {
+    if (!accesoBloqueado && !verificandoRol && vistaActiva === 'inventario' && !puedeVerInventario) {
+      navigate('/ordenes', { replace: true });
+    }
+  }, [accesoBloqueado, navigate, puedeVerInventario, verificandoRol, vistaActiva]);
+
   function cambiarVistaSegura(siguienteVista) {
     if (siguienteVista === 'admin' && !esAdmin) {
       return;
     }
 
     if (siguienteVista === 'clientes' && !puedeVerClientes) {
+      return;
+    }
+
+    if (siguienteVista === 'inventario' && !puedeVerInventario) {
       return;
     }
 
@@ -143,6 +162,10 @@ export default function App() {
 
     if (item.key === 'clientes') {
       return puedeVerClientes;
+    }
+
+    if (item.key === 'inventario') {
+      return puedeVerInventario;
     }
 
     return true;
@@ -221,6 +244,10 @@ export default function App() {
               path="/clientes"
               element={puedeVerClientes ? <ClientesView rolUsuario={rolUsuario} /> : <Navigate to="/ordenes" replace />}
             />
+            <Route
+              path="/inventario"
+              element={puedeVerInventario ? <InventarioView rolUsuario={rolUsuario} /> : <Navigate to="/ordenes" replace />}
+            />
             <Route path="/admin" element={esAdmin ? <AdminView /> : <Navigate to="/ordenes" replace />} />
             <Route path="*" element={<Navigate to="/ordenes" replace />} />
           </Routes>
@@ -233,6 +260,7 @@ export default function App() {
           onCambiarVista={cambiarVistaSegura}
           mostrarAdmin={esAdmin}
           mostrarClientes={puedeVerClientes}
+          mostrarInventario={puedeVerInventario}
         />
       )}
     </div>

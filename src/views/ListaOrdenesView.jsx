@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { BarChart3, CircleCheckBig, Clock3, Download, Hammer, TriangleAlert, Wrench } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
@@ -572,6 +573,7 @@ function TarjetaOrden({
   onFinalizar,
   onActualizar,
   onNotificar,
+  onIrAParte,
   puedeEditarOrden,
 }) {
   const { icono: IconoEstado, clase } = estilosEstado[orden.estado] || estilosEstado.Pendiente;
@@ -691,7 +693,7 @@ function TarjetaOrden({
 
       {orden.estado !== 'Finalizado' && (
         <div className="mt-3 space-y-2">
-          <div className={`grid gap-2 ${puedeEditarOrden ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <div className={`grid gap-2 ${puedeEditarOrden ? 'grid-cols-3' : 'grid-cols-2'}`}>
             {puedeEditarOrden && (
               <button
                 type="button"
@@ -704,6 +706,13 @@ function TarjetaOrden({
                 {mostrarEdicion ? 'Cancelar edición' : 'Editar orden'}
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => onIrAParte(orden)}
+              className="w-full rounded-xl border border-marca-300 bg-marca-50 px-4 py-3 text-sm font-bold text-marca-800 active:scale-95"
+            >
+              Ir a parte
+            </button>
             <button
               type="button"
               onClick={() => setMostrarCierre((previo) => !previo)}
@@ -832,6 +841,7 @@ function TarjetaOrden({
 }
 
 export function ListaOrdenesView({ rolUsuario }) {
+  const navigate = useNavigate();
   const [tecnicosActivos, setTecnicosActivos] = useState([]);
   const [toast, setToast] = useState(null);
   const [exportandoZip, setExportandoZip] = useState(false);
@@ -967,6 +977,22 @@ export function ListaOrdenesView({ rolUsuario }) {
   const costeTotalMateriales = ordenesFinalizadas
     .reduce((acc, orden) => acc + Number(orden.costeMateriales || 0), 0)
     .toFixed(2);
+
+  function irAParteDesdeOrden(orden) {
+    navigate('/parte', {
+      state: {
+        prefill: {
+          orden_id: orden.id,
+          cliente_id: orden.clienteId || '',
+          equipo_id: orden.equipoId || '',
+          tecnico_id: orden.tecnicoId || '',
+          descripcion_problema: orden.descripcion || '',
+          prioridad: orden.prioridad || 'media',
+          numero_ticket: orden.numero_ticket || '',
+        },
+      },
+    });
+  }
 
   async function exportarOrdenesExcel() {
     try {
@@ -1309,6 +1335,7 @@ export function ListaOrdenesView({ rolUsuario }) {
               onFinalizar={finalizarOrden}
               onActualizar={actualizarOrden}
               onNotificar={notificar}
+              onIrAParte={irAParteDesdeOrden}
               puedeEditarOrden={puedeEditarOrden}
             />
           ))}

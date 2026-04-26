@@ -49,6 +49,7 @@ function adaptarOrdenSupabase(orden) {
     numero_ticket: orden.numero_ticket,
     clienteId: orden.clientes?.id || '',
     cliente: orden.clientes?.nombre || 'Cliente sin nombre',
+    equipoId: orden.equipos?.id || '',
     equipo: orden.equipos?.nombre || 'Equipo no especificado',
     tecnicoId: orden.tecnicos?.id || '',
     tecnico: orden.tecnicos?.nombre || 'Sin técnico asignado',

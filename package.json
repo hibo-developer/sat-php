@@ -49,6 +49,7 @@
     "appId": "com.cotepa.sat.desktop",
     "productName": "SAT Movil COTEPA",
     "artifactName": "SAT-Movil-COTEPA-Setup-${version}-${arch}.${ext}",
+    "afterPack": "electron/afterPack.cjs",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -70,8 +71,6 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "electron/assets/app-icon.ico",
-      "uninstallerIcon": "electron/assets/app-icon.ico",
-      "installerHeaderIcon": "electron/assets/app-icon.ico",
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "SAT Movil COTEPA"

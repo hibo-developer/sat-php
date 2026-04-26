@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   obtenerClientes,
   obtenerEquiposPorCliente,
@@ -130,6 +131,8 @@ const FORM_INICIAL = {
 };
 
 export function ParteTrabajoView() {
+  const location = useLocation();
+  const prefillAplicadoRef = useRef(false);
   const [formulario, setFormulario] = useState(FORM_INICIAL);
   const [seguimientoTiempo, setSeguimientoTiempo] = useState({
     inicioIso: null,
@@ -241,6 +244,29 @@ export function ParteTrabajoView() {
   useEffect(() => {
     prepararCanvasFirma();
   }, []);
+
+  useEffect(() => {
+    const prefill = location.state?.prefill;
+    if (!prefill || prefillAplicadoRef.current) {
+      return;
+    }
+
+    prefillAplicadoRef.current = true;
+    setFormulario((prev) => ({
+      ...prev,
+      orden_id: prefill.orden_id || '',
+      cliente_id: prefill.cliente_id || prev.cliente_id,
+      equipo_id: prefill.equipo_id || prev.equipo_id,
+      tecnico_id: prefill.tecnico_id || prev.tecnico_id,
+      descripcion_problema: prefill.descripcion_problema || prev.descripcion_problema,
+      prioridad: prefill.prioridad || prev.prioridad,
+    }));
+    setMensaje(
+      prefill.numero_ticket
+        ? `Orden SAT-${prefill.numero_ticket} cargada en el parte.`
+        : 'Orden cargada en el parte.',
+    );
+  }, [location.state]);
 
   function prepararCanvasFirma() {
     const canvas = canvasFirmaRef.current;
@@ -446,11 +472,6 @@ export function ParteTrabajoView() {
       return;
     }
 
-    if (!formulario.orden_id) {
-      setError('Debes seleccionar una orden abierta para registrar el parte.');
-      return;
-    }
-
     setGuardando(true);
 
     try {
@@ -582,10 +603,10 @@ export function ParteTrabajoView() {
       <form onSubmit={enviarParte} className="grid gap-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta lg:grid-cols-2 lg:gap-4 lg:p-5">
         <h2 className="text-lg font-bold text-marca-900 lg:col-span-2">Detalle del parte</h2>
         <p className="text-xs text-slate-600 lg:col-span-2">
-          El parte cierra una orden abierta y permite consumir materiales desde inventario.
+          El parte puede vincularse a una orden abierta o registrarse como imprevisto sin orden previa.
         </p>
         <p className="text-xs text-slate-500 lg:col-span-2">
-          El parte queda finalizado al guardarlo, así que necesita técnico y tiempo empleado válidos.
+          Al guardarlo, la orden vinculada se finaliza. Si no hay orden, se crea una orden imprevista y se finaliza en el mismo paso.
         </p>
 
         <div className="rounded-xl border border-marca-200 bg-marca-50 p-3 lg:col-span-2">
@@ -681,9 +702,8 @@ export function ParteTrabajoView() {
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-slate-700">Orden abierta *</span>
+          <span className="mb-1 block text-xs font-semibold text-slate-700">Orden abierta (opcional)</span>
           <select
-            required
             value={formulario.orden_id}
             onChange={(e) => {
               const ordenId = e.target.value;
@@ -691,7 +711,7 @@ export function ParteTrabajoView() {
               setFormulario((prev) => ({
                 ...prev,
                 orden_id: ordenId,
-                equipo_id: orden?.equipo_id || '',
+                equipo_id: orden?.equipo_id || prev.equipo_id,
                 descripcion_problema: orden?.descripcion_averia || prev.descripcion_problema,
                 prioridad: orden?.prioridad || prev.prioridad,
               }));
@@ -699,13 +719,16 @@ export function ParteTrabajoView() {
             className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
             disabled={!formulario.cliente_id || !formulario.tecnico_id}
           >
-            <option value="">Selecciona orden abierta</option>
+            <option value="">Sin orden previa (imprevista)</option>
             {ordenesAbiertas.map((orden) => (
               <option key={orden.id} value={orden.id}>
                 #{orden.numero_ticket} · {orden.descripcion_averia}
               </option>
             ))}
           </select>
+          <p className="mt-1 text-xs text-slate-500">
+            Si no seleccionas orden, el sistema creará una orden imprevista y la cerrará con este parte.
+          </p>
         </label>
 
         <label className="block lg:col-span-2">

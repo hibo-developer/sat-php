@@ -1,4 +1,5 @@
 import { obtenerClienteSupabase } from './supabaseClient';
+import { traducirErrorSupabase } from './erroresSupabase';
 
 export async function listarEquipos() {
   const supabase = obtenerClienteSupabase();
@@ -9,7 +10,7 @@ export async function listarEquipos() {
     .order('nombre', { ascending: true });
 
   if (error) {
-    throw new Error(`No se pudieron obtener los equipos: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudieron obtener los equipos'));
   }
 
   return data || [];
@@ -21,7 +22,7 @@ export async function crearEquipo(payload) {
   const { data, error } = await supabase.from('equipos').insert(payload).select().single();
 
   if (error) {
-    throw new Error(`No se pudo crear el equipo: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo crear el equipo'));
   }
 
   return data;
@@ -38,7 +39,7 @@ export async function actualizarEquipo(idEquipo, payload) {
     .single();
 
   if (error) {
-    throw new Error(`No se pudo actualizar el equipo: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo actualizar el equipo'));
   }
 
   return data;
@@ -50,6 +51,6 @@ export async function eliminarEquipo(idEquipo) {
   const { error } = await supabase.from('equipos').delete().eq('id', idEquipo);
 
   if (error) {
-    throw new Error(`No se pudo eliminar el equipo: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo eliminar el equipo'));
   }
 }

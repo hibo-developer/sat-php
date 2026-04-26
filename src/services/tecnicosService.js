@@ -1,4 +1,5 @@
 import { obtenerClienteSupabase } from './supabaseClient';
+import { traducirErrorSupabase } from './erroresSupabase';
 
 export async function listarTecnicos() {
   const supabase = obtenerClienteSupabase();
@@ -9,7 +10,7 @@ export async function listarTecnicos() {
     .order('nombre', { ascending: true });
 
   if (error) {
-    throw new Error(`No se pudieron obtener los técnicos: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudieron obtener los técnicos'));
   }
 
   return data || [];
@@ -21,7 +22,7 @@ export async function crearTecnico(payload) {
   const { data, error } = await supabase.from('tecnicos').insert(payload).select().single();
 
   if (error) {
-    throw new Error(`No se pudo crear el técnico: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo crear el técnico'));
   }
 
   return data;
@@ -38,7 +39,7 @@ export async function actualizarTecnico(idTecnico, payload) {
     .single();
 
   if (error) {
-    throw new Error(`No se pudo actualizar el técnico: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo actualizar el técnico'));
   }
 
   return data;
@@ -50,6 +51,6 @@ export async function eliminarTecnico(idTecnico) {
   const { error } = await supabase.from('tecnicos').delete().eq('id', idTecnico);
 
   if (error) {
-    throw new Error(`No se pudo eliminar el técnico: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo eliminar el técnico'));
   }
 }

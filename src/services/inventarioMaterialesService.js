@@ -1,4 +1,5 @@
 import { obtenerClienteSupabase } from './supabaseClient';
+import { traducirErrorSupabase } from './erroresSupabase';
 
 function limpiarTexto(valor) {
   return typeof valor === 'string' ? valor.trim() : '';
@@ -40,7 +41,7 @@ export async function listarMaterialesInventario({ soloActivos = false } = {}) {
   const { data, error } = await consulta;
 
   if (error) {
-    throw new Error(`No se pudieron obtener los materiales de inventario: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudieron obtener los materiales de inventario'));
   }
 
   return data || [];
@@ -74,7 +75,7 @@ export async function crearMaterialInventario(payload) {
     .single();
 
   if (error) {
-    throw new Error(`No se pudo crear el material de inventario: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo crear el material de inventario'));
   }
 
   return data;
@@ -126,7 +127,7 @@ export async function actualizarMaterialInventario(id, payload) {
     .single();
 
   if (error) {
-    throw new Error(`No se pudo actualizar el material de inventario: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo actualizar el material de inventario'));
   }
 
   return data;
@@ -143,6 +144,6 @@ export async function eliminarMaterialInventario(id) {
   const { error } = await supabase.from('inventario_materiales').delete().eq('id', materialId);
 
   if (error) {
-    throw new Error(`No se pudo eliminar el material de inventario: ${error.message}`);
+    throw new Error(traducirErrorSupabase(error, 'No se pudo eliminar el material de inventario'));
   }
 }

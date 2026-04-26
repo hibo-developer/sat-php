@@ -1,13 +1,20 @@
-import { ClipboardList, FilePlus2, Settings, Users } from 'lucide-react';
+import { ClipboardList, FilePlus2, Package, Settings, Users } from 'lucide-react';
 
 const ITEMS = [
   { key: 'ordenes', label: 'Órdenes', icono: ClipboardList },
   { key: 'parte', label: 'Parte', icono: FilePlus2 },
   { key: 'clientes', label: 'Clientes', icono: Users },
+  { key: 'inventario', label: 'Inventario', icono: Package },
   { key: 'admin', label: 'Admin', icono: Settings },
 ];
 
-export function NavbarInferior({ vistaActiva, onCambiarVista, mostrarAdmin = false, mostrarClientes = true }) {
+export function NavbarInferior({
+  vistaActiva,
+  onCambiarVista,
+  mostrarAdmin = false,
+  mostrarClientes = true,
+  mostrarInventario = true,
+}) {
   const itemsVisibles = ITEMS.filter((item) => {
     if (item.key === 'admin') {
       return mostrarAdmin;
@@ -15,6 +22,10 @@ export function NavbarInferior({ vistaActiva, onCambiarVista, mostrarAdmin = fal
 
     if (item.key === 'clientes') {
       return mostrarClientes;
+    }
+
+    if (item.key === 'inventario') {
+      return mostrarInventario;
     }
 
     return true;
