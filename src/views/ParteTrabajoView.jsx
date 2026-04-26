@@ -8,6 +8,7 @@ import {
 import { listarMaterialesInventario } from '../services/inventarioMaterialesService';
 import { crearParteTrabajo, obtenerOrdenesAbiertasParaParte } from '../services/parteTrabajoService';
 import { generarYSubirInformeParte } from '../services/parteTrabajoInformeService';
+import { guardarInformePdfUrl } from '../services/workOrderService';
 import { tieneConfiguracionSupabase } from '../services/supabaseClient';
 
 function obtenerUbicacionActual() {
@@ -133,7 +134,19 @@ const FORM_INICIAL = {
 export function ParteTrabajoView() {
   const location = useLocation();
   const prefillAplicadoRef = useRef(false);
-  const [formulario, setFormulario] = useState(FORM_INICIAL);
+  const [formulario, setFormulario] = useState(() => {
+    const prefill = location.state?.prefill;
+    if (!prefill) return FORM_INICIAL;
+    return {
+      ...FORM_INICIAL,
+      orden_id: prefill.orden_id || '',
+      cliente_id: prefill.cliente_id || '',
+      equipo_id: prefill.equipo_id || '',
+      tecnico_id: prefill.tecnico_id || '',
+      descripcion_problema: prefill.descripcion_problema || '',
+      prioridad: prefill.prioridad || 'media',
+    };
+  });
   const [seguimientoTiempo, setSeguimientoTiempo] = useState({
     inicioIso: null,
     finIso: null,
@@ -252,15 +265,6 @@ export function ParteTrabajoView() {
     }
 
     prefillAplicadoRef.current = true;
-    setFormulario((prev) => ({
-      ...prev,
-      orden_id: prefill.orden_id || '',
-      cliente_id: prefill.cliente_id || prev.cliente_id,
-      equipo_id: prefill.equipo_id || prev.equipo_id,
-      tecnico_id: prefill.tecnico_id || prev.tecnico_id,
-      descripcion_problema: prefill.descripcion_problema || prev.descripcion_problema,
-      prioridad: prefill.prioridad || prev.prioridad,
-    }));
     setMensaje(
       prefill.numero_ticket
         ? `Orden SAT-${prefill.numero_ticket} cargada en el parte.`
@@ -519,6 +523,12 @@ export function ParteTrabajoView() {
         firmaUrl: parte.firma_url || '',
         fotosIntervencionUrls: parte.fotos_intervencion_urls || [],
       });
+
+      try {
+        await guardarInformePdfUrl(parte.id, informe.pdfUrl);
+      } catch {
+        // No bloqueante: el parte ya se registró correctamente
+      }
 
       setMensaje(
         `Parte registrado. Informe PDF disponible: ${informe.pdfUrl}`,

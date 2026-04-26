@@ -54,11 +54,14 @@ function formatearFechaOficial(valor) {
   }).format(fecha);
 }
 
-function crearReferenciaInforme(parteId, fechaIso) {
+function crearReferenciaInforme(fechaIso, secuencial) {
   const fecha = new Date(fechaIso);
-  const y = Number.isFinite(fecha.getTime()) ? fecha.getFullYear() : new Date().getFullYear();
-  const base = valorTexto(parteId, `${Date.now()}`).replace(/\s+/g, '-').toUpperCase();
-  return `SAT-${y}-${base}`;
+  const ahora = Number.isFinite(fecha.getTime()) ? fecha : new Date();
+  const dd = String(ahora.getDate()).padStart(2, '0');
+  const mm = String(ahora.getMonth() + 1).padStart(2, '0');
+  const yyyy = ahora.getFullYear();
+  const seq = String(Number.isFinite(secuencial) ? secuencial : 1).padStart(2, '0');
+  return `SAT-${dd}-${mm}-${yyyy}/${seq}`;
 }
 
 function materialesDesdeTexto(texto) {
@@ -391,12 +394,13 @@ async function crearPdfInforme({
   tecnicoNombre,
   firmaUrl,
   fotosIntervencionUrls,
+  secuencialDiario,
 }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const estado = { y: 18 };
   const materiales = materialesDesdeTexto(formulario.materialesTexto);
   const fechaInformeIso = new Date().toISOString();
-  const referenciaInforme = crearReferenciaInforme(parte.id, fechaInformeIso);
+  const referenciaInforme = crearReferenciaInforme(fechaInformeIso, secuencialDiario);
 
   iniciarPagina(doc, estado);
   dibujarCabeceraPrincipal(doc, estado, parte.id);
@@ -463,6 +467,26 @@ async function subirPdfInforme({ pdfBlob, nombreArchivo, clienteId }) {
   return data?.publicUrl || null;
 }
 
+async function obtenerSecuencialDiario() {
+  try {
+    const supabase = obtenerClienteSupabase();
+    const hoy = new Date();
+    const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).toISOString();
+    const finDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 1).toISOString();
+
+    const { count } = await supabase
+      .from('ordenes_trabajo')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado', 'finalizado')
+      .gte('fecha_fin', inicioDia)
+      .lt('fecha_fin', finDia);
+
+    return (count || 0) + 1;
+  } catch {
+    return 1;
+  }
+}
+
 export async function generarYSubirInformeParte({
   parte,
   formulario,
@@ -473,6 +497,8 @@ export async function generarYSubirInformeParte({
   firmaUrl,
   fotosIntervencionUrls,
 }) {
+  const secuencialDiario = await obtenerSecuencialDiario();
+
   const { pdfBlob, nombreArchivo } = await crearPdfInforme({
     parte,
     formulario,
@@ -482,6 +508,7 @@ export async function generarYSubirInformeParte({
     tecnicoNombre,
     firmaUrl,
     fotosIntervencionUrls,
+    secuencialDiario,
   });
 
   const pdfUrl = await subirPdfInforme({

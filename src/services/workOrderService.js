@@ -171,6 +171,7 @@ export async function obtenerOrdenesTrabajo() {
       estado,
       prioridad,
       foto_url,
+      informe_pdf_url,
       fecha_inicio,
       fecha_fin,
       clientes ( id, nombre ),
@@ -376,4 +377,24 @@ export async function actualizarOrdenTrabajo(idOrden, cambios) {
   }
 
   return data;
+}
+
+/**
+ * Guarda la URL del informe PDF en la orden de trabajo.
+ */
+export async function guardarInformePdfUrl(ordenId, pdfUrl) {
+  const supabase = obtenerClienteSupabase();
+  const id = limpiarTexto(ordenId);
+  if (!id) {
+    throw new Error('ID de orden requerido para guardar el informe PDF.');
+  }
+
+  const { error } = await supabase
+    .from('ordenes_trabajo')
+    .update({ informe_pdf_url: pdfUrl })
+    .eq('id', id);
+
+  if (error) {
+    throw new Error(`No se pudo guardar la URL del informe PDF: ${error.message}`);
+  }
 }

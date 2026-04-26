@@ -33,7 +33,7 @@ const estilosEstado = {
 };
 
 const FILTROS_ESTADO = ['Todas', 'Pendiente', 'En Proceso', 'Pausado', 'Finalizado'];
-const BLOQUE_ORDENES_LISTADO = 20;
+const ORDENES_POR_PAGINA = 8;
 const OPCIONES_ESTADO_EDITABLE = [
   { value: 'pendiente', label: 'Pendiente' },
   { value: 'en_proceso', label: 'En Proceso' },
@@ -577,11 +577,7 @@ function TarjetaOrden({
   puedeEditarOrden,
 }) {
   const { icono: IconoEstado, clase } = estilosEstado[orden.estado] || estilosEstado.Pendiente;
-  const [mostrarCierre, setMostrarCierre] = useState(false);
   const [mostrarEdicion, setMostrarEdicion] = useState(false);
-  const [tareasRealizadas, setTareasRealizadas] = useState('');
-  const [fotoUrl, setFotoUrl] = useState('');
-  const [tiempoEmpleadoMinutos, setTiempoEmpleadoMinutos] = useState('60');
   const [mensajeEdicion, setMensajeEdicion] = useState('');
   const [formularioEdicion, setFormularioEdicion] = useState({
     tecnico_id: orden.tecnicoId || '',
@@ -596,28 +592,6 @@ function TarjetaOrden({
       estado: orden.estado === 'En Proceso' ? 'en_proceso' : orden.estado === 'Pausado' ? 'pausado' : 'pendiente',
     });
   }, [orden.estado, orden.prioridad, orden.tecnicoId]);
-
-  async function enviarCierre(evento) {
-    evento.preventDefault();
-    try {
-      await onFinalizar(orden.id, { tareasRealizadas, fotoUrl, tiempoEmpleadoMinutos });
-      setMostrarCierre(false);
-      setTareasRealizadas('');
-      setFotoUrl('');
-      setTiempoEmpleadoMinutos('60');
-      onNotificar({
-        tipo: 'exito',
-        titulo: 'Orden finalizada',
-        descripcion: `La orden de ${orden.equipo} se ha cerrado correctamente.`,
-      });
-    } catch (err) {
-      onNotificar({
-        tipo: 'error',
-        titulo: 'No se pudo finalizar la orden',
-        descripcion: err.message || 'Revisa los datos de cierre e inténtalo de nuevo.',
-      });
-    }
-  }
 
   async function guardarEdicion(evento) {
     evento.preventDefault();
@@ -715,10 +689,10 @@ function TarjetaOrden({
             </button>
             <button
               type="button"
-              onClick={() => setMostrarCierre((previo) => !previo)}
+              onClick={() => onIrAParte(orden)}
               className="w-full rounded-xl bg-cotepa-rojo-500 px-4 py-3 text-sm font-bold text-white active:scale-95"
             >
-              {mostrarCierre ? 'Cancelar cierre' : 'Finalizar Orden'}
+              Finalizar con informe
             </button>
           </div>
 
@@ -789,51 +763,6 @@ function TarjetaOrden({
             </form>
           )}
 
-          {mostrarCierre && (
-            <form onSubmit={enviarCierre} className="space-y-2 rounded-xl border border-marca-100 bg-marca-50 p-3">
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-slate-700">Tareas realizadas *</span>
-                <textarea
-                  required
-                  rows={3}
-                  value={tareasRealizadas}
-                  onChange={(evento) => setTareasRealizadas(evento.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Ej: limpieza de filtros y cambio de válvula"
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-slate-700">URL de foto</span>
-                <input
-                  value={fotoUrl}
-                  onChange={(evento) => setFotoUrl(evento.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="https://..."
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-slate-700">Tiempo empleado (min) *</span>
-                <input
-                  required
-                  min="1"
-                  type="number"
-                  value={tiempoEmpleadoMinutos}
-                  onChange={(evento) => setTiempoEmpleadoMinutos(evento.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={accionEnCurso}
-                className="w-full rounded-xl bg-marca-900 px-4 py-3 text-sm font-bold text-white active:scale-95 disabled:opacity-60"
-              >
-                {accionEnCurso ? 'Cerrando...' : 'Confirmar Finalización'}
-              </button>
-            </form>
-          )}
         </div>
       )}
     </article>
@@ -847,7 +776,7 @@ export function ListaOrdenesView({ rolUsuario }) {
   const [exportandoZip, setExportandoZip] = useState(false);
   const [filtroClienteAnalisis, setFiltroClienteAnalisis] = useState('todos');
   const [busquedaOrdenes, setBusquedaOrdenes] = useState('');
-  const [cantidadOrdenesVisibles, setCantidadOrdenesVisibles] = useState(BLOQUE_ORDENES_LISTADO);
+  const [paginaActual, setPaginaActual] = useState(1);
   const busquedaOrdenesDebounce = useDebounce(busquedaOrdenes, 200);
   const {
     ordenes,
@@ -914,7 +843,7 @@ export function ListaOrdenesView({ rolUsuario }) {
   }, [clientesAnalisis, filtroClienteAnalisis]);
 
   useEffect(() => {
-    setCantidadOrdenesVisibles(BLOQUE_ORDENES_LISTADO);
+    setPaginaActual(1);
   }, [filtroEstado, ordenes.length, busquedaOrdenesDebounce]);
 
   const ordenesAnalisis = filtroClienteAnalisis === 'todos'
@@ -949,8 +878,9 @@ export function ListaOrdenesView({ rolUsuario }) {
     })
     : ordenesFiltradas;
   const totalOrdenesFiltradas = ordenesListado.length;
-  const ordenesPaginadas = ordenesListado.slice(0, cantidadOrdenesVisibles);
-  const hayMasOrdenes = totalOrdenesFiltradas > cantidadOrdenesVisibles;
+  const totalPaginas = Math.max(1, Math.ceil(totalOrdenesFiltradas / ORDENES_POR_PAGINA));
+  const paginaSegura = Math.min(paginaActual, totalPaginas);
+  const ordenesPaginadas = ordenesListado.slice((paginaSegura - 1) * ORDENES_POR_PAGINA, paginaSegura * ORDENES_POR_PAGINA);
   const esTecnico = rolUsuario === 'tecnico';
   const puedeCrearOrdenes = rolUsuario !== 'tecnico';
   const puedeEditarOrden = rolUsuario !== 'tecnico';
@@ -1340,21 +1270,73 @@ export function ListaOrdenesView({ rolUsuario }) {
             />
           ))}
 
-          {totalOrdenesFiltradas > 0 && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">
-                  Mostrando {Math.min(cantidadOrdenesVisibles, totalOrdenesFiltradas)} de {totalOrdenesFiltradas} órdenes.
-                </p>
-                {hayMasOrdenes && (
-                  <button
-                    type="button"
-                    onClick={() => setCantidadOrdenesVisibles((previo) => previo + BLOQUE_ORDENES_LISTADO)}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800"
-                  >
-                    Cargar más órdenes
-                  </button>
-                )}
+          {totalPaginas > 1 && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              <p className="text-xs font-semibold">
+                Página {paginaSegura} de {totalPaginas} · {totalOrdenesFiltradas} órdenes
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={paginaSegura === 1}
+                  onClick={() => setPaginaActual(1)}
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-700 disabled:opacity-40"
+                  title="Primera página"
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  disabled={paginaSegura === 1}
+                  onClick={() => setPaginaActual((p) => p - 1)}
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-700 disabled:opacity-40"
+                  title="Página anterior"
+                >
+                  ‹
+                </button>
+                {Array.from({ length: totalPaginas }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPaginas || Math.abs(p - paginaSegura) <= 1)
+                  .reduce((acc, p, idx, arr) => {
+                    if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, idx) =>
+                    p === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-1 text-xs text-slate-400">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPaginaActual(p)}
+                        className={`rounded-lg border px-2 py-1 text-xs font-bold ${
+                          p === paginaSegura
+                            ? 'border-cotepa-rojo-500 bg-cotepa-rojo-500 text-white'
+                            : 'border-slate-300 bg-white text-slate-700'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ),
+                  )}
+                <button
+                  type="button"
+                  disabled={paginaSegura === totalPaginas}
+                  onClick={() => setPaginaActual((p) => p + 1)}
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-700 disabled:opacity-40"
+                  title="Página siguiente"
+                >
+                  ›
+                </button>
+                <button
+                  type="button"
+                  disabled={paginaSegura === totalPaginas}
+                  onClick={() => setPaginaActual(totalPaginas)}
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-700 disabled:opacity-40"
+                  title="Última página"
+                >
+                  »
+                </button>
               </div>
             </div>
           )}
