@@ -3,7 +3,9 @@ import { obtenerOrdenes } from '../services/ordenesService';
 
 import {
   actualizarOrdenTrabajo,
+  actualizarValoracionOrdenFinalizada,
   crearOrdenTrabajo,
+  eliminarOrdenTrabajo,
   finalizarOrdenTrabajo,
   obtenerOrdenesTrabajo,
 } from '../services/workOrderService';
@@ -31,6 +33,26 @@ function extraerTiempoMinutos(tareasRealizadas) {
   return Number.isFinite(minutos) ? minutos : null;
 }
 
+function extraerKmFacturables(tareasRealizadas) {
+  const texto = String(tareasRealizadas || '');
+  const coincidencia = /Distancia ida:[^|]*\|\s*Factura \(ida\+vuelta\):\s*([\d.,]+)\s*km/i.exec(texto);
+  if (!coincidencia) {
+    return null;
+  }
+
+  const km = Number.parseFloat(coincidencia[1].replace(',', '.'));
+  return Number.isFinite(km) ? Number(km.toFixed(2)) : null;
+}
+
+function calcularHorasManoObraPorContador(tiempoEmpleadoMinutos) {
+  const minutos = Number(tiempoEmpleadoMinutos);
+  if (!Number.isFinite(minutos) || minutos <= 0) {
+    return 1;
+  }
+
+  return minutos < 60 ? 1 : Number((minutos / 60).toFixed(2));
+}
+
 function adaptarOrdenSupabase(orden) {
   const materiales = Array.isArray(orden.materiales_orden) ? orden.materiales_orden : [];
   const costeMateriales = materiales.reduce((total, material) => {
@@ -43,6 +65,8 @@ function adaptarOrdenSupabase(orden) {
   const tiempoEmpleadoMinutos = Number.isFinite(Number(orden.tiempo_empleado_minutos))
     ? Number(orden.tiempo_empleado_minutos)
     : extraerTiempoMinutos(tareasRealizadas);
+  const kmFacturablesCalculados = extraerKmFacturables(tareasRealizadas);
+  const horasManoObraCalculadas = calcularHorasManoObraPorContador(tiempoEmpleadoMinutos);
 
   return {
     id: orden.id,
@@ -58,6 +82,38 @@ function adaptarOrdenSupabase(orden) {
     fotoUrl: orden.foto_url || '',
     materiales,
     costeMateriales,
+    costeMaterialesEditable: Number.isFinite(Number(orden.coste_materiales_editable))
+      ? Number(orden.coste_materiales_editable)
+      : costeMateriales,
+    tarifaManoObraHora: Number.isFinite(Number(orden.tarifa_mano_obra_hora))
+      ? Number(orden.tarifa_mano_obra_hora)
+      : 0,
+    horasManoObra: Number.isFinite(Number(orden.horas_mano_obra))
+      ? Number(orden.horas_mano_obra)
+      : horasManoObraCalculadas,
+    tarifaDesplazamientoKm: Number.isFinite(Number(orden.tarifa_desplazamiento_km))
+      ? Number(orden.tarifa_desplazamiento_km)
+      : 0,
+    kmDesplazamientoFacturables: Number.isFinite(Number(orden.km_desplazamiento_facturables))
+      ? Number(orden.km_desplazamiento_facturables)
+      : (kmFacturablesCalculados ?? 0),
+    recargoFestivoPct: Number.isFinite(Number(orden.recargo_festivo_pct))
+      ? Number(orden.recargo_festivo_pct)
+      : 0,
+    recargoFueraHorarioPct: Number.isFinite(Number(orden.recargo_fuera_horario_pct))
+      ? Number(orden.recargo_fuera_horario_pct)
+      : 0,
+    aplicaRecargoFestivo: orden.aplica_recargo_festivo ?? null,
+    aplicaRecargoFueraHorario: orden.aplica_recargo_fuera_horario ?? null,
+    costeManoObraTotal: Number.isFinite(Number(orden.coste_mano_obra_total))
+      ? Number(orden.coste_mano_obra_total)
+      : 0,
+    costeDesplazamientoTotal: Number.isFinite(Number(orden.coste_desplazamiento_total))
+      ? Number(orden.coste_desplazamiento_total)
+      : 0,
+    costeTotal: Number.isFinite(Number(orden.coste_total))
+      ? Number(orden.coste_total)
+      : costeMateriales,
     tiempoEmpleadoMinutos,
     fechaInicioIso: orden.fecha_inicio || null,
     fechaFinIso: orden.fecha_fin || null,
@@ -143,6 +199,36 @@ export function useOrdenes() {
     }
   }
 
+  async function actualizarValoracionFinalizada(idOrden, datosValoracion) {
+    setAccionEnCurso(true);
+    setError('');
+
+    try {
+      await actualizarValoracionOrdenFinalizada(idOrden, datosValoracion);
+      await cargarOrdenes();
+    } catch (err) {
+      setError(err.message || 'No se pudo actualizar la valoración y regenerar el informe.');
+      throw err;
+    } finally {
+      setAccionEnCurso(false);
+    }
+  }
+
+  async function eliminarOrden(idOrden) {
+    setAccionEnCurso(true);
+    setError('');
+
+    try {
+      await eliminarOrdenTrabajo(idOrden);
+      await cargarOrdenes();
+    } catch (err) {
+      setError(err.message || 'No se pudo eliminar la orden.');
+      throw err;
+    } finally {
+      setAccionEnCurso(false);
+    }
+  }
+
   const resumenPorEstado = useMemo(() => {
     return ordenes.reduce(
       (acc, orden) => {
@@ -173,5 +259,7 @@ export function useOrdenes() {
     crearOrdenDesdeFormulario,
     finalizarOrden,
     actualizarOrden,
+    actualizarValoracionFinalizada,
+    eliminarOrden,
   };
 }

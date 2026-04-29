@@ -7,8 +7,132 @@ import {
   validarTextoRequerido,
   validarUrlOpcional,
 } from './satValidation';
+import { generarYSubirInformeParte } from './parteTrabajoInformeService';
 
 const ESTADOS_EDITABLES = new Set(['pendiente', 'en_proceso', 'pausado']);
+
+function validarDecimalNoNegativo(valor, etiqueta) {
+  const numero = Number.parseFloat(String(valor ?? '').replace(',', '.'));
+  if (!Number.isFinite(numero) || numero < 0) {
+    throw new Error(`${etiqueta} debe ser un número mayor o igual a 0.`);
+  }
+
+  return Number(numero.toFixed(2));
+}
+
+function extraerFotosIntervencionDesdeTareas(tareasRealizadas) {
+  const texto = String(tareasRealizadas || '');
+  const coincidencia = /Fotos intervención:\s*(.+)$/i.exec(texto);
+  if (!coincidencia || !coincidencia[1]) {
+    return [];
+  }
+
+  return coincidencia[1]
+    .split('|')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function extraerNombreFirmanteDesdeTareas(tareasRealizadas) {
+  const texto = String(tareasRealizadas || '');
+  const coincidencia = /Firmado por:\s*([^|\n\r]+)/i.exec(texto);
+  return coincidencia?.[1]?.trim() || 'Cliente';
+}
+
+function materialesOrdenATexto(materialesOrden) {
+  const materiales = Array.isArray(materialesOrden) ? materialesOrden : [];
+  return materiales
+    .map((material) => {
+      const nombre = material.nombre_material || 'Material';
+      const cantidad = Number.parseInt(material.cantidad, 10);
+      const precioUnitario = Number.parseFloat(material.precio_unitario || 0);
+      if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        return null;
+      }
+
+      const precio = Number.isFinite(precioUnitario) ? precioUnitario : 0;
+      return `${nombre};${cantidad};${precio}`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function resolverValoracionNumerica(payloadValor, valorActual, etiqueta) {
+  const vieneEnPayload = payloadValor !== undefined && payloadValor !== null && String(payloadValor).trim() !== '';
+  if (vieneEnPayload) {
+    return validarDecimalNoNegativo(payloadValor, etiqueta);
+  }
+
+  const numeroActual = Number.parseFloat(String(valorActual ?? '').replace(',', '.'));
+  if (Number.isFinite(numeroActual) && numeroActual >= 0) {
+    return Number(numeroActual.toFixed(2));
+  }
+
+  return 0;
+}
+
+function resolverHorasManoObraPorDefecto(minutosContador) {
+  const minutos = Number.parseFloat(String(minutosContador ?? '').replace(',', '.'));
+  if (!Number.isFinite(minutos) || minutos <= 0) {
+    return 1;
+  }
+
+  return minutos < 60 ? 1 : Number((minutos / 60).toFixed(2));
+}
+
+function resolverValoracionBooleana(payloadValor, valorActual = false) {
+  if (typeof payloadValor === 'boolean') {
+    return payloadValor;
+  }
+
+  if (typeof payloadValor === 'string') {
+    const normalizado = payloadValor.trim().toLowerCase();
+    if (['true', '1', 'si', 'sí'].includes(normalizado)) {
+      return true;
+    }
+    if (['false', '0', 'no'].includes(normalizado)) {
+      return false;
+    }
+  }
+
+  if (typeof payloadValor === 'number') {
+    return payloadValor === 1;
+  }
+
+  return Boolean(valorActual);
+}
+
+function esFinDeSemanaPorIso(fechaIso) {
+  if (!fechaIso) {
+    return false;
+  }
+
+  const fecha = new Date(fechaIso);
+  if (Number.isNaN(fecha.getTime())) {
+    return false;
+  }
+
+  const dia = fecha.getDay();
+  return dia === 0 || dia === 6;
+}
+
+function esFueraHorarioLaboralPorIso(fechaIso) {
+  if (!fechaIso) {
+    return false;
+  }
+
+  const fecha = new Date(fechaIso);
+  if (Number.isNaN(fecha.getTime())) {
+    return false;
+  }
+
+  const hora = fecha.getHours();
+  return hora < 8 || hora >= 18;
+}
+
+function calcularRecargoFueraHorario(fechaInicioIso, fechaFinIso) {
+  return esFueraHorarioLaboralPorIso(fechaInicioIso) || esFueraHorarioLaboralPorIso(fechaFinIso);
+}
 
 function validarEstadoEditable(estado) {
   const estadoLimpio = limpiarTexto(estado).toLowerCase();
@@ -168,9 +292,22 @@ export async function obtenerOrdenesTrabajo() {
       descripcion_averia,
       tareas_realizadas,
       tiempo_empleado_minutos,
+      coste_materiales_editable,
+      tarifa_mano_obra_hora,
+      horas_mano_obra,
+      tarifa_desplazamiento_km,
+      km_desplazamiento_facturables,
+      recargo_festivo_pct,
+      recargo_fuera_horario_pct,
+      aplica_recargo_festivo,
+      aplica_recargo_fuera_horario,
+      coste_mano_obra_total,
+      coste_desplazamiento_total,
+      coste_total,
       estado,
       prioridad,
       foto_url,
+      firma_url,
       informe_pdf_url,
       fecha_inicio,
       fecha_fin,
@@ -379,6 +516,69 @@ export async function actualizarOrdenTrabajo(idOrden, cambios) {
   return data;
 }
 
+export async function eliminarOrdenTrabajo(ordenId) {
+  const supabase = obtenerClienteSupabase();
+  const contextoUsuario = await obtenerContextoUsuarioSat(supabase);
+  const id = limpiarTexto(ordenId);
+
+  if (!id) {
+    throw new Error('La orden que intentas eliminar no es válida.');
+  }
+
+  if (contextoUsuario.rol !== 'admin') {
+    throw new Error('Solo el rol admin puede eliminar órdenes.');
+  }
+
+  const { data: ordenActual, error: errorOrdenActual } = await supabase
+    .from('ordenes_trabajo')
+    .select('id')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (errorOrdenActual) {
+    throw new Error(`No se pudo validar la orden antes de eliminarla: ${errorOrdenActual.message}`);
+  }
+
+  if (!ordenActual) {
+    throw new Error('La orden que intentas eliminar no existe o ya fue eliminada.');
+  }
+
+  const { error: errorMateriales } = await supabase
+    .from('materiales_orden')
+    .delete()
+    .eq('orden_id', id);
+
+  if (errorMateriales) {
+    throw new Error(`No se pudieron eliminar los materiales de la orden: ${errorMateriales.message}`);
+  }
+
+  const { error: errorOrden } = await supabase
+    .from('ordenes_trabajo')
+    .delete()
+    .eq('id', id);
+
+  if (errorOrden) {
+    throw new Error(`No se pudo eliminar la orden de trabajo: ${errorOrden.message}`);
+  }
+
+  // Verificar que realmente se eliminó (RLS puede bloquear silenciosamente sin devolver error)
+  const { data: verificacion, error: errorVerificacion } = await supabase
+    .from('ordenes_trabajo')
+    .select('id')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (errorVerificacion) {
+    throw new Error(`No se pudo verificar la eliminación: ${errorVerificacion.message}`);
+  }
+
+  if (verificacion) {
+    throw new Error(
+      'La orden no fue eliminada. Es posible que la política de seguridad de la base de datos no permita esta operación. Contacta con el administrador de Supabase para añadir una política DELETE para el rol admin en la tabla ordenes_trabajo.',
+    );
+  }
+}
+
 /**
  * Guarda la URL del informe PDF en la orden de trabajo.
  */
@@ -397,4 +597,215 @@ export async function guardarInformePdfUrl(ordenId, pdfUrl) {
   if (error) {
     throw new Error(`No se pudo guardar la URL del informe PDF: ${error.message}`);
   }
+}
+
+export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
+  const supabase = obtenerClienteSupabase();
+  const contextoUsuario = await obtenerContextoUsuarioSat(supabase);
+  const id = limpiarTexto(ordenId);
+
+  if (!id) {
+    throw new Error('ID de orden requerido para actualizar la valoración.');
+  }
+
+  if (contextoUsuario.rol !== 'admin') {
+    throw new Error('Solo el rol admin puede editar valoración económica y regenerar el informe.');
+  }
+
+  const { data: ordenActual, error: ordenError } = await supabase
+    .from('ordenes_trabajo')
+    .select(
+      `
+      id,
+      numero_ticket,
+      cliente_id,
+      equipo_id,
+      tecnico_id,
+      descripcion_averia,
+      tareas_realizadas,
+      tiempo_empleado_minutos,
+      prioridad,
+      estado,
+      foto_url,
+      firma_url,
+      coste_materiales_editable,
+      tarifa_mano_obra_hora,
+      horas_mano_obra,
+      tarifa_desplazamiento_km,
+      km_desplazamiento_facturables,
+      recargo_festivo_pct,
+      recargo_fuera_horario_pct,
+      aplica_recargo_festivo,
+      aplica_recargo_fuera_horario,
+      coste_mano_obra_total,
+      coste_desplazamiento_total,
+      coste_total,
+      fecha_inicio,
+      fecha_fin,
+      clientes ( id, nombre ),
+      equipos ( id, nombre, marca, modelo ),
+      tecnicos ( id, nombre ),
+      materiales_orden ( id, nombre_material, cantidad, precio_unitario )
+    `,
+    )
+    .eq('id', id)
+    .maybeSingle();
+
+  if (ordenError) {
+    throw new Error(`No se pudo cargar la orden para valorar: ${ordenError.message}`);
+  }
+
+  if (!ordenActual) {
+    throw new Error('La orden no existe o fue eliminada.');
+  }
+
+  if (ordenActual.estado !== 'finalizado') {
+    throw new Error('Solo se puede valorar una orden finalizada.');
+  }
+
+  const costeMaterialesCalculado = (Array.isArray(ordenActual.materiales_orden) ? ordenActual.materiales_orden : [])
+    .reduce((acc, item) => acc + (Number(item.cantidad || 0) * Number(item.precio_unitario || 0)), 0);
+
+  const costeMaterialesEditable = resolverValoracionNumerica(
+    payload.coste_materiales_editable,
+    ordenActual.coste_materiales_editable ?? costeMaterialesCalculado,
+    'Coste materiales editable',
+  );
+  const tarifaManoObraHora = resolverValoracionNumerica(
+    payload.tarifa_mano_obra_hora,
+    ordenActual.tarifa_mano_obra_hora ?? 50,
+    'Tarifa mano de obra (€/h)',
+  );
+  const horasManoObraFallback = Number.isFinite(Number(ordenActual.horas_mano_obra))
+    ? Number(ordenActual.horas_mano_obra)
+    : resolverHorasManoObraPorDefecto(ordenActual.tiempo_empleado_minutos);
+  const horasManoObra = resolverValoracionNumerica(
+    payload.horas_mano_obra,
+    horasManoObraFallback,
+    'Horas mano de obra',
+  );
+  const tarifaDesplazamientoKm = resolverValoracionNumerica(
+    payload.tarifa_desplazamiento_km,
+    ordenActual.tarifa_desplazamiento_km ?? 0.5,
+    'Tarifa desplazamiento (€/km)',
+  );
+  const kmDesplazamientoFacturables = resolverValoracionNumerica(
+    payload.km_desplazamiento_facturables,
+    ordenActual.km_desplazamiento_facturables,
+    'Km desplazamiento facturables',
+  );
+  const recargoFestivoPct = resolverValoracionNumerica(
+    payload.recargo_festivo_pct,
+    ordenActual.recargo_festivo_pct,
+    'Recargo festivo (%)',
+  );
+  const recargoFueraHorarioPct = resolverValoracionNumerica(
+    payload.recargo_fuera_horario_pct,
+    ordenActual.recargo_fuera_horario_pct,
+    'Recargo fuera de horario (%)',
+  );
+  const aplicaRecargoFestivo = resolverValoracionBooleana(
+    payload.aplica_recargo_festivo,
+    ordenActual.aplica_recargo_festivo ?? esFinDeSemanaPorIso(ordenActual.fecha_inicio),
+  );
+  const aplicaRecargoFueraHorario = resolverValoracionBooleana(
+    payload.aplica_recargo_fuera_horario,
+    ordenActual.aplica_recargo_fuera_horario
+      ?? calcularRecargoFueraHorario(ordenActual.fecha_inicio, ordenActual.fecha_fin),
+  );
+  const porcentajeRecargoManoObra = (aplicaRecargoFestivo ? recargoFestivoPct : 0)
+    + (aplicaRecargoFueraHorario ? recargoFueraHorarioPct : 0);
+  const costeManoObraBase = Number((tarifaManoObraHora * horasManoObra).toFixed(2));
+  const costeManoObraTotal = Number((costeManoObraBase * (1 + (porcentajeRecargoManoObra / 100))).toFixed(2));
+  const costeDesplazamientoTotal = Number((tarifaDesplazamientoKm * kmDesplazamientoFacturables).toFixed(2));
+  const costeTotal = Number((costeMaterialesEditable + costeManoObraTotal + costeDesplazamientoTotal).toFixed(2));
+
+  const { error: updateError } = await supabase
+    .from('ordenes_trabajo')
+    .update({
+      coste_materiales_editable: costeMaterialesEditable,
+      tarifa_mano_obra_hora: tarifaManoObraHora,
+      horas_mano_obra: horasManoObra,
+      tarifa_desplazamiento_km: tarifaDesplazamientoKm,
+      km_desplazamiento_facturables: kmDesplazamientoFacturables,
+      recargo_festivo_pct: recargoFestivoPct,
+      recargo_fuera_horario_pct: recargoFueraHorarioPct,
+      aplica_recargo_festivo: aplicaRecargoFestivo,
+      aplica_recargo_fuera_horario: aplicaRecargoFueraHorario,
+      coste_mano_obra_total: costeManoObraTotal,
+      coste_desplazamiento_total: costeDesplazamientoTotal,
+      coste_total: costeTotal,
+    })
+    .eq('id', id);
+
+  if (updateError) {
+    throw new Error(`No se pudo guardar la valoración económica: ${updateError.message}`);
+  }
+
+  const materialesTexto = materialesOrdenATexto(ordenActual.materiales_orden);
+  const desplazamiento = {
+    inicioIso: ordenActual.fecha_inicio,
+    finIso: ordenActual.fecha_fin,
+    distanciaMetros: Number.isFinite(Number(kmDesplazamientoFacturables))
+      ? Math.round(kmDesplazamientoFacturables * 1000)
+      : null,
+  };
+
+  const informe = await generarYSubirInformeParte({
+    parte: { id: ordenActual.id },
+    formulario: {
+      cliente_id: ordenActual.cliente_id,
+      prioridad: ordenActual.prioridad || 'media',
+      tiempo_empleado: String(ordenActual.tiempo_empleado_minutos || 0),
+      descripcion_problema: ordenActual.descripcion_averia || 'Sin descripción',
+      materialesTexto,
+    },
+    desplazamiento,
+    intervension: {
+      inicioIso: ordenActual.fecha_inicio,
+      finIso: ordenActual.fecha_fin,
+    },
+    clienteNombre: ordenActual.clientes?.nombre || 'Cliente no identificado',
+    equipoNombre: ordenActual.equipos?.nombre || 'Sin equipo',
+    tecnicoNombre: ordenActual.tecnicos?.nombre || 'Tecnico no identificado',
+    nombreFirmante: extraerNombreFirmanteDesdeTareas(ordenActual.tareas_realizadas),
+    firmaUrl: ordenActual.firma_url || '',
+    fotosIntervencionUrls: extraerFotosIntervencionDesdeTareas(ordenActual.tareas_realizadas),
+    valoracionEconomica: {
+      costeMaterialesEditable,
+      tarifaManoObraHora,
+      horasManoObra,
+      recargoFestivoPct,
+      recargoFueraHorarioPct,
+      aplicaRecargoFestivo,
+      aplicaRecargoFueraHorario,
+      porcentajeRecargoManoObra,
+      costeManoObraBase,
+      costeManoObraTotal,
+      tarifaDesplazamientoKm,
+      kmDesplazamientoFacturables,
+      costeDesplazamientoTotal,
+      costeTotal,
+    },
+  });
+
+  await guardarInformePdfUrl(id, informe.pdfUrl);
+
+  return {
+    pdfUrl: informe.pdfUrl,
+    costeMaterialesEditable,
+    tarifaManoObraHora,
+    horasManoObra,
+    tarifaDesplazamientoKm,
+    kmDesplazamientoFacturables,
+    recargoFestivoPct,
+    recargoFueraHorarioPct,
+    aplicaRecargoFestivo,
+    aplicaRecargoFueraHorario,
+    porcentajeRecargoManoObra,
+    costeManoObraBase,
+    costeManoObraTotal,
+    costeDesplazamientoTotal,
+    costeTotal,
+  };
 }

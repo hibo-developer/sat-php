@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   actualizarMaterialInventario,
-  crearMaterialInventario,
+  crearOActualizarMaterialInventario,
   eliminarMaterialInventario,
   listarMaterialesInventario,
+  listarMovimientosInventario,
+  regularizarStockMaterialInventario,
 } from '../services/inventarioMaterialesService';
 import { tieneConfiguracionSupabase } from '../services/supabaseClient';
 
@@ -14,17 +16,30 @@ const FORM_MATERIAL_INICIAL = {
   stock_actual: '0',
   precio_ref: '',
   activo: true,
+  motivo: '',
+};
+
+const FORM_REGULARIZACION_INICIAL = {
+  material_id: '',
+  modo: 'fijar',
+  cantidad: '0',
+  motivo: '',
 };
 
 const OPCIONES_ITEMS_PAGINA = [5, 10, 20];
 
 export function InventarioView({ rolUsuario }) {
   const [materialesInventario, setMaterialesInventario] = useState([]);
+  const [movimientosInventario, setMovimientosInventario] = useState([]);
+  const [movimientosSoportados, setMovimientosSoportados] = useState(true);
   const [cargando, setCargando] = useState(true);
+  const [cargandoMovimientos, setCargandoMovimientos] = useState(true);
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [materialForm, setMaterialForm] = useState(FORM_MATERIAL_INICIAL);
   const [materialEditandoId, setMaterialEditandoId] = useState('');
+  const [regularizacionForm, setRegularizacionForm] = useState(FORM_REGULARIZACION_INICIAL);
+  const [filtroMaterialMovimientoId, setFiltroMaterialMovimientoId] = useState('');
   const [paginaMateriales, setPaginaMateriales] = useState(1);
   const [itemsPaginaMateriales, setItemsPaginaMateriales] = useState(5);
 
@@ -63,13 +78,86 @@ export function InventarioView({ rolUsuario }) {
     }
   }
 
+  async function cargarMovimientos() {
+    if (sinConfiguracion) {
+      setCargandoMovimientos(false);
+      return;
+    }
+
+    setCargandoMovimientos(true);
+
+    try {
+      const respuesta = await listarMovimientosInventario({
+        materialId: filtroMaterialMovimientoId,
+        limite: 50,
+      });
+      setMovimientosInventario(respuesta.items || []);
+      setMovimientosSoportados(respuesta.soportado !== false);
+    } catch (err) {
+      setError(err.message || 'No se pudo cargar historial.');
+    } finally {
+      setCargandoMovimientos(false);
+    }
+  }
+
   useEffect(() => {
     recargarDatos();
   }, []);
 
+  useEffect(() => {
+    cargarMovimientos();
+  }, [filtroMaterialMovimientoId]);
+
+  function formatearFechaHora(valor) {
+    if (!valor) {
+      return 'Sin fecha';
+    }
+    const fecha = new Date(valor);
+    if (Number.isNaN(fecha.getTime())) {
+      return 'Sin fecha';
+    }
+    return fecha.toLocaleString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  function etiquetaTipoMovimiento(tipo) {
+    if (tipo === 'alta') {
+      return 'Alta';
+    }
+    if (tipo === 'entrada') {
+      return 'Entrada';
+    }
+    if (tipo === 'salida') {
+      return 'Salida';
+    }
+    if (tipo === 'regularizacion') {
+      return 'Regularizacion';
+    }
+    return tipo || 'Movimiento';
+  }
+
+  function claseTipoMovimiento(tipo) {
+    if (tipo === 'salida') {
+      return 'bg-rose-100 text-rose-700';
+    }
+    if (tipo === 'regularizacion') {
+      return 'bg-amber-100 text-amber-700';
+    }
+    return 'bg-emerald-100 text-emerald-700';
+  }
+
   function limpiarFormMaterial() {
     setMaterialForm(FORM_MATERIAL_INICIAL);
     setMaterialEditandoId('');
+  }
+
+  function limpiarFormRegularizacion() {
+    setRegularizacionForm(FORM_REGULARIZACION_INICIAL);
   }
 
   async function guardarMaterial(evento) {
@@ -85,14 +173,19 @@ export function InventarioView({ rolUsuario }) {
         stock_actual: materialForm.stock_actual,
         precio_ref: materialForm.precio_ref,
         activo: materialForm.activo,
+        motivo: materialForm.motivo,
       };
 
       if (materialEditandoId) {
         await actualizarMaterialInventario(materialEditandoId, payload);
         setMensaje('Material actualizado correctamente.');
       } else {
-        await crearMaterialInventario(payload);
-        setMensaje('Material creado correctamente.');
+        const resultado = await crearOActualizarMaterialInventario(payload);
+        if (resultado.accion === 'actualizado') {
+          setMensaje('Material existente actualizado: se sumó el stock correctamente.');
+        } else {
+          setMensaje('Material creado correctamente.');
+        }
       }
 
       limpiarFormMaterial();
@@ -115,6 +208,25 @@ export function InventarioView({ rolUsuario }) {
       await recargarDatos();
     } catch (err) {
       setError(err.message || 'No se pudo eliminar el material de inventario.');
+    }
+  }
+
+  async function regularizarStock(evento) {
+    evento.preventDefault();
+    setMensaje('');
+    setError('');
+
+    try {
+      await regularizarStockMaterialInventario(regularizacionForm.material_id, {
+        modo: regularizacionForm.modo,
+        cantidad: regularizacionForm.cantidad,
+        motivo: regularizacionForm.motivo,
+      });
+      setMensaje('Regularizacion aplicada correctamente.');
+      limpiarFormRegularizacion();
+      await recargarDatos();
+    } catch (err) {
+      setError(err.message || 'No se pudo regularizar el stock.');
     }
   }
 
@@ -148,74 +260,152 @@ export function InventarioView({ rolUsuario }) {
 
       <div className="lg:grid lg:grid-cols-12 lg:gap-4">
         {puedeEditarCatalogos && (
-          <form onSubmit={guardarMaterial} className="space-y-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta lg:col-span-4 lg:sticky lg:top-5 lg:self-start">
-            <h3 className="text-base font-bold text-slate-800">
-              {materialEditandoId ? 'Editar material' : 'Nuevo material'}
-            </h3>
+          <div className="space-y-4 lg:col-span-4 lg:sticky lg:top-5 lg:self-start">
+            <form onSubmit={guardarMaterial} className="space-y-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta">
+              <h3 className="text-base font-bold text-slate-800">
+                {materialEditandoId ? 'Editar material' : 'Nuevo material'}
+              </h3>
+              {!materialEditandoId && (
+                <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  Si el material ya existe, se sumará el stock automáticamente en lugar de crear un duplicado.
+                </p>
+              )}
 
-            <input
-              required
-              value={materialForm.nombre}
-              onChange={(e) => setMaterialForm((p) => ({ ...p, nombre: e.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-              placeholder="Nombre del material"
-            />
-
-            <input
-              value={materialForm.descripcion}
-              onChange={(e) => setMaterialForm((p) => ({ ...p, descripcion: e.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
-              placeholder="Descripcion"
-            />
-
-            <div className="grid grid-cols-3 gap-2">
               <input
-                value={materialForm.unidad}
-                onChange={(e) => setMaterialForm((p) => ({ ...p, unidad: e.target.value }))}
-                className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
-                placeholder="Unidad"
+                required
+                value={materialForm.nombre}
+                onChange={(e) => setMaterialForm((p) => ({ ...p, nombre: e.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                placeholder="Nombre del material"
               />
-              <input
-                type="number"
-                min="0"
-                value={materialForm.stock_actual}
-                onChange={(e) => setMaterialForm((p) => ({ ...p, stock_actual: e.target.value }))}
-                className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
-                placeholder="Stock"
-              />
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={materialForm.precio_ref}
-                onChange={(e) => setMaterialForm((p) => ({ ...p, precio_ref: e.target.value }))}
-                className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
-                placeholder="Precio"
-              />
-            </div>
 
-            <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
               <input
-                type="checkbox"
-                checked={materialForm.activo}
-                onChange={(e) => setMaterialForm((p) => ({ ...p, activo: e.target.checked }))}
+                value={materialForm.descripcion}
+                onChange={(e) => setMaterialForm((p) => ({ ...p, descripcion: e.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                placeholder="Descripcion"
               />
-              Material activo
-            </label>
 
-            <div className="grid grid-cols-2 gap-2">
-              <button className="rounded-xl bg-cotepa-rojo-500 px-4 py-3 text-sm font-bold text-white" type="submit">
-                {materialEditandoId ? 'Actualizar' : 'Crear'}
-              </button>
-              <button
-                className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
-                type="button"
-                onClick={limpiarFormMaterial}
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  value={materialForm.unidad}
+                  onChange={(e) => setMaterialForm((p) => ({ ...p, unidad: e.target.value }))}
+                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder="Unidad"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  value={materialForm.stock_actual}
+                  onChange={(e) => setMaterialForm((p) => ({ ...p, stock_actual: e.target.value }))}
+                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder={materialEditandoId ? 'Stock total' : 'Cantidad'}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={materialForm.precio_ref}
+                  onChange={(e) => setMaterialForm((p) => ({ ...p, precio_ref: e.target.value }))}
+                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder="Precio"
+                />
+              </div>
+
+              <input
+                value={materialForm.motivo}
+                onChange={(e) => setMaterialForm((p) => ({ ...p, motivo: e.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                placeholder="Motivo (opcional)"
+              />
+
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={materialForm.activo}
+                  onChange={(e) => setMaterialForm((p) => ({ ...p, activo: e.target.checked }))}
+                />
+                Material activo
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button className="rounded-xl bg-cotepa-rojo-500 px-4 py-3 text-sm font-bold text-white" type="submit">
+                  {materialEditandoId ? 'Actualizar' : 'Guardar'}
+                </button>
+                <button
+                  className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
+                  type="button"
+                  onClick={limpiarFormMaterial}
+                >
+                  Limpiar
+                </button>
+              </div>
+            </form>
+
+            <form onSubmit={regularizarStock} className="space-y-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta">
+              <h3 className="text-base font-bold text-slate-800">Regularizar stock</h3>
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Usa esta opción para ajustes por inventario físico, roturas o correcciones administrativas.
+              </p>
+
+              <select
+                required
+                value={regularizacionForm.material_id}
+                onChange={(e) => setRegularizacionForm((p) => ({ ...p, material_id: e.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
               >
-                Limpiar
-              </button>
-            </div>
-          </form>
+                <option value="">Selecciona material</option>
+                {materialesInventario.map((material) => (
+                  <option key={material.id} value={material.id}>
+                    {material.nombre} · stock {material.stock_actual}
+                  </option>
+                ))}
+              </select>
+
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={regularizacionForm.modo}
+                  onChange={(e) => setRegularizacionForm((p) => ({ ...p, modo: e.target.value }))}
+                  className="rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                >
+                  <option value="fijar">Fijar stock final</option>
+                  <option value="sumar">Sumar stock</option>
+                  <option value="restar">Restar stock</option>
+                </select>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  value={regularizacionForm.cantidad}
+                  onChange={(e) => setRegularizacionForm((p) => ({ ...p, cantidad: e.target.value }))}
+                  className="rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                  placeholder="Cantidad"
+                />
+              </div>
+
+              <textarea
+                required
+                rows={2}
+                value={regularizacionForm.motivo}
+                onChange={(e) => setRegularizacionForm((p) => ({ ...p, motivo: e.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                placeholder="Motivo de la regularizacion"
+              />
+
+              <div className="grid grid-cols-2 gap-2">
+                <button className="rounded-xl bg-marca-900 px-4 py-3 text-sm font-bold text-white" type="submit">
+                  Aplicar
+                </button>
+                <button
+                  className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
+                  type="button"
+                  onClick={limpiarFormRegularizacion}
+                >
+                  Limpiar
+                </button>
+              </div>
+            </form>
+          </div>
         )}
 
         <div className={`space-y-2 ${puedeEditarCatalogos ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
@@ -273,7 +463,7 @@ export function InventarioView({ rolUsuario }) {
                 <p className="mt-1 text-xs text-slate-500">Estado: {material.activo ? 'Activo' : 'Inactivo'}</p>
 
                 {puedeEditarCatalogos && (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="mt-3 grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       className="rounded-xl bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
@@ -286,10 +476,23 @@ export function InventarioView({ rolUsuario }) {
                           stock_actual: String(material.stock_actual ?? 0),
                           precio_ref: material.precio_ref ?? '',
                           activo: Boolean(material.activo),
+                          motivo: '',
                         });
                       }}
                     >
                       Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-bold text-amber-700"
+                      onClick={() =>
+                        setRegularizacionForm((previo) => ({
+                          ...previo,
+                          material_id: material.id,
+                        }))
+                      }
+                    >
+                      Regularizar
                     </button>
                     <button
                       type="button"
@@ -304,6 +507,86 @@ export function InventarioView({ rolUsuario }) {
             ))}
         </div>
       </div>
+
+      <section className="space-y-3 rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-base font-bold text-slate-800">Historial de movimientos</h3>
+            <p className="text-xs text-slate-600">Entradas, salidas y regularizaciones con motivo.</p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-slate-700">Filtrar por material</label>
+            <select
+              value={filtroMaterialMovimientoId}
+              onChange={(e) => setFiltroMaterialMovimientoId(e.target.value)}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-xs"
+            >
+              <option value="">Todos</option>
+              {materialesInventario.map((material) => (
+                <option key={material.id} value={material.id}>
+                  {material.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {!movimientosSoportados && (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            El historial requiere la migracion de base de datos 14_inventario_movimientos_regularizacion.sql.
+          </p>
+        )}
+
+        {cargandoMovimientos && <p className="text-sm text-slate-600">Cargando movimientos...</p>}
+
+        {!cargandoMovimientos && movimientosSoportados && movimientosInventario.length === 0 && (
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+            No hay movimientos registrados para el filtro seleccionado.
+          </p>
+        )}
+
+        {!cargandoMovimientos && movimientosSoportados && movimientosInventario.length > 0 && (
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-xs">
+              <thead className="bg-slate-50 text-slate-700">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold">Fecha</th>
+                  <th className="px-3 py-2 text-left font-semibold">Material</th>
+                  <th className="px-3 py-2 text-left font-semibold">Tipo</th>
+                  <th className="px-3 py-2 text-left font-semibold">Cantidad</th>
+                  <th className="px-3 py-2 text-left font-semibold">Stock</th>
+                  <th className="px-3 py-2 text-left font-semibold">Motivo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {movimientosInventario.map((movimiento) => {
+                  const cantidadNumerica = Number(movimiento.cantidad) || 0;
+                  const cantidadTexto = cantidadNumerica > 0 ? `+${cantidadNumerica}` : String(cantidadNumerica);
+                  const materialNombre = movimiento.inventario_materiales?.nombre || 'Material';
+
+                  return (
+                    <tr key={movimiento.id}>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatearFechaHora(movimiento.creado_en)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-700">{materialNombre}</td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex rounded-full px-2 py-1 font-semibold ${claseTipoMovimiento(movimiento.tipo_movimiento)}`}>
+                          {etiquetaTipoMovimiento(movimiento.tipo_movimiento)}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 font-semibold text-slate-700">{cantidadTexto}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-600">
+                        {movimiento.stock_anterior} {'->'} {movimiento.stock_nuevo}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">{movimiento.motivo || 'Sin motivo'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </section>
   );
 }

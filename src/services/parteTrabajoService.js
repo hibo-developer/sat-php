@@ -46,6 +46,143 @@ function formatearCoord(valor) {
   return Number.isFinite(Number(valor)) ? Number(valor).toFixed(5) : 'n/d';
 }
 
+function resolverMinutosFase(fase) {
+  const minutosGeo = Number(fase?.minutosGeo);
+  if (Number.isFinite(minutosGeo) && minutosGeo > 0) {
+    return Math.round(minutosGeo);
+  }
+
+  if (!fase?.inicioIso || !fase?.finIso) {
+    return null;
+  }
+
+  const inicioMs = new Date(fase.inicioIso).getTime();
+  const finMs = new Date(fase.finIso).getTime();
+  const diferenciaMs = finMs - inicioMs;
+  if (!Number.isFinite(diferenciaMs) || diferenciaMs <= 0) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(diferenciaMs / 60000));
+}
+
+// Dirección fiscal de Cotepa S.L. (en futuros cambios, leer de tabla config_empresa)
+function obtenerDireccionFiscalCotepa() {
+  return {
+    latitud: 39.4415,
+    longitud: -0.3820,
+    nombreLugar: 'Cotepa S.L., Paiporta',
+    nombreLugarCompleto: 'Pol. Industrial La Pasqualeta, Calle Sequía de Rascanya, 46200 Paiporta, Valencia',
+  };
+}
+
+function construirResumenDesplazamiento(desplazamiento) {
+  if (!desplazamiento || !desplazamiento.inicioIso) {
+    return null;
+  }
+
+  const lineas = ['Desplazamiento Cotepa a cliente'];
+  lineas.push(`Inicio: ${desplazamiento.inicioIso}`);
+
+  if (desplazamiento.finIso) {
+    lineas.push(`Fin: ${desplazamiento.finIso}`);
+  }
+
+  if (desplazamiento.ubicacionInicio) {
+    lineas.push(
+      `Geo inicio (Cotepa): ${formatearCoord(desplazamiento.ubicacionInicio.latitud)}, ${formatearCoord(desplazamiento.ubicacionInicio.longitud)}`,
+    );
+  }
+
+  if (desplazamiento.ubicacionFin) {
+    lineas.push(
+      `Geo fin (cliente): ${formatearCoord(desplazamiento.ubicacionFin.latitud)}, ${formatearCoord(desplazamiento.ubicacionFin.longitud)}`,
+    );
+
+    if (desplazamiento.ubicacionFin.nombreLugarCompleto || desplazamiento.ubicacionFin.nombreLugar) {
+      lineas.push(
+        `Lugar cliente: ${desplazamiento.ubicacionFin.nombreLugarCompleto || desplazamiento.ubicacionFin.nombreLugar}`,
+      );
+    }
+  }
+
+  if (Number.isFinite(Number(desplazamiento.distanciaMetros))) {
+    const kmIda = Math.round(Number(desplazamiento.distanciaMetros)) / 1000;
+    const kmFactura = kmIda * 2;
+    lineas.push(`Distancia ida: ${kmIda.toFixed(2)} km | Factura (ida+vuelta): ${kmFactura.toFixed(2)} km`);
+  }
+
+  const minutosDesplazamiento = resolverMinutosFase(desplazamiento);
+  if (Number.isFinite(Number(minutosDesplazamiento))) {
+    const minutosReales = Math.round(Number(minutosDesplazamiento));
+    const minutosFacturables = minutosReales * 2;
+    lineas.push(`Tiempo desplazamiento: ${minutosReales} minutos | Factura (ida+vuelta): ${minutosFacturables} minutos`);
+  }
+
+  return lineas.join(' | ');
+}
+
+function construirResumenIntervension(intervension) {
+  if (!intervension || !intervension.inicioIso) {
+    return null;
+  }
+
+  const lineas = ['Intervención en cliente'];
+  lineas.push(`Inicio: ${intervension.inicioIso}`);
+
+  if (intervension.finIso) {
+    lineas.push(`Fin: ${intervension.finIso}`);
+  }
+
+  if (intervension.ubicacionInicio) {
+    lineas.push(
+      `Geo inicio: ${formatearCoord(intervension.ubicacionInicio.latitud)}, ${formatearCoord(intervension.ubicacionInicio.longitud)}`,
+    );
+
+    if (intervension.ubicacionInicio.nombreLugarCompleto || intervension.ubicacionInicio.nombreLugar) {
+      lineas.push(
+        `Lugar inicio: ${intervension.ubicacionInicio.nombreLugarCompleto || intervension.ubicacionInicio.nombreLugar}`,
+      );
+    }
+  }
+
+  if (intervension.ubicacionFin) {
+    lineas.push(
+      `Geo fin: ${formatearCoord(intervension.ubicacionFin.latitud)}, ${formatearCoord(intervension.ubicacionFin.longitud)}`,
+    );
+
+    if (intervension.ubicacionFin.nombreLugarCompleto || intervension.ubicacionFin.nombreLugar) {
+      lineas.push(
+        `Lugar fin: ${intervension.ubicacionFin.nombreLugarCompleto || intervension.ubicacionFin.nombreLugar}`,
+      );
+    }
+  }
+
+  if (Number.isFinite(Number(intervension.distanciaMetros))) {
+    lineas.push(`Distancia geo: ${(Number(intervension.distanciaMetros) / 1000).toFixed(2)} km`);
+  }
+
+  const minutosIntervension = resolverMinutosFase(intervension);
+  if (Number.isFinite(Number(minutosIntervension))) {
+    lineas.push(`Tiempo intervención: ${Math.round(Number(minutosIntervension))} minutos`);
+  }
+
+  const pausasComida = Array.isArray(intervension.pausasComida) ? intervension.pausasComida : [];
+  if (pausasComida.length > 0) {
+    const totalPausaMinutos = pausasComida.reduce((acumulado, pausa) => {
+      return acumulado + resolverMinutosFase(pausa);
+    }, 0);
+    lineas.push(`Pausas comida: ${pausasComida.length} | Total pausa: ${totalPausaMinutos} minutos`);
+
+    pausasComida.forEach((pausa, indice) => {
+      const minutos = resolverMinutosFase(pausa);
+      lineas.push(`Pausa ${indice + 1}: ${pausa.inicioIso || 'N/D'} -> ${pausa.finIso || 'N/D'} (${minutos} min)`);
+    });
+  }
+
+  return lineas.join(' | ');
+}
+
 function construirResumenGeolocalizacion(seguimientoTiempo) {
   if (!seguimientoTiempo || !seguimientoTiempo.inicioIso) {
     return null;
@@ -83,7 +220,7 @@ function construirResumenGeolocalizacion(seguimientoTiempo) {
   }
 
   if (Number.isFinite(Number(seguimientoTiempo.distanciaMetros))) {
-    lineas.push(`Distancia geolocalizada: ${Math.round(Number(seguimientoTiempo.distanciaMetros))} m`);
+    lineas.push(`Distancia geolocalizada: ${(Number(seguimientoTiempo.distanciaMetros) / 1000).toFixed(2)} km`);
   }
 
   if (Number.isFinite(Number(seguimientoTiempo.minutosGeo))) {
@@ -108,6 +245,84 @@ function resolverFechaIso(valor, fallback) {
 
 function esDataUrlImagen(valor) {
   return /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(valor || '');
+}
+
+function normalizarNombreEntidad(valor) {
+  return String(valor || '').trim().replace(/\s+/g, ' ');
+}
+
+async function resolverOCrearClientePorNombre(supabase, nombreCliente) {
+  const nombreNormalizado = normalizarNombreEntidad(nombreCliente);
+  if (!nombreNormalizado) {
+    return null;
+  }
+
+  const { data: clienteExistente, error: errorBusqueda } = await supabase
+    .from('clientes')
+    .select('id, nombre')
+    .ilike('nombre', nombreNormalizado)
+    .limit(1)
+    .maybeSingle();
+
+  if (errorBusqueda) {
+    throw new Error(`No se pudo buscar el cliente por nombre: ${errorBusqueda.message}`);
+  }
+
+  if (clienteExistente?.id) {
+    return clienteExistente;
+  }
+
+  const { data: clienteCreado, error: errorCreacion } = await supabase
+    .from('clientes')
+    .insert({ nombre: nombreNormalizado })
+    .select('id, nombre')
+    .single();
+
+  if (errorCreacion) {
+    throw new Error(`No se pudo crear el cliente ${nombreNormalizado}: ${errorCreacion.message}`);
+  }
+
+  return clienteCreado;
+}
+
+async function resolverOCrearEquipoPorNombre(supabase, { clienteId, nombreEquipo }) {
+  const nombreNormalizado = normalizarNombreEntidad(nombreEquipo);
+  if (!nombreNormalizado) {
+    return null;
+  }
+
+  const { data: equipoExistente, error: errorBusqueda } = await supabase
+    .from('equipos')
+    .select('id, nombre, cliente_id')
+    .eq('cliente_id', clienteId)
+    .ilike('nombre', nombreNormalizado)
+    .limit(1)
+    .maybeSingle();
+
+  if (errorBusqueda) {
+    throw new Error(`No se pudo buscar el equipo por nombre: ${errorBusqueda.message}`);
+  }
+
+  if (equipoExistente?.id) {
+    return equipoExistente;
+  }
+
+  const { data: equipoCreado, error: errorCreacion } = await supabase
+    .from('equipos')
+    .insert({
+      cliente_id: clienteId,
+      nombre: nombreNormalizado,
+      marca: null,
+      modelo: null,
+    })
+    .select('id, nombre, cliente_id')
+    .single();
+
+  if (errorCreacion) {
+    throw new Error(`No se pudo crear el equipo ${nombreNormalizado}: ${errorCreacion.message}`);
+  }
+
+  return equipoCreado;
 }
 
 async function resolverBlobImagen(fuente) {
@@ -231,8 +446,10 @@ export async function crearParteTrabajo(payload) {
   const supabase = obtenerClienteSupabase();
   const ordenIdEntrada = limpiarTexto(payload.orden_id);
   let ordenIdTrabajo = ordenIdEntrada;
-  const clienteId = limpiarTexto(payload.cliente_id);
-  const equipoId = limpiarTexto(payload.equipo_id) || null;
+  let clienteId = limpiarTexto(payload.cliente_id);
+  let equipoId = limpiarTexto(payload.equipo_id) || null;
+  const clienteNombreEntrada = normalizarNombreEntidad(payload.cliente_nombre);
+  const equipoNombreEntrada = normalizarNombreEntidad(payload.equipo_nombre);
   const tecnicoId = limpiarTexto(payload.tecnico_id);
   const descripcionProblema = validarTextoRequerido(payload.descripcion_problema, 'La descripción del problema', 8);
   const nombreFirmante = validarTextoRequerido(payload.nombre_firmante, 'El nombre de la persona firmante', 3);
@@ -240,16 +457,19 @@ export async function crearParteTrabajo(payload) {
   const materialesManual = parsearMateriales(payload.materialesTexto || '');
   const materialesInventarioEntrada = Array.isArray(payload.materialesInventario) ? payload.materialesInventario : [];
   const tiempoEmpleadoMinutos = validarMinutos(payload.tiempo_empleado);
-  const resumenGeo = construirResumenGeolocalizacion(payload.seguimientoTiempo);
+  
+  // Construir resúmenes para desplazamiento e intervención
+  const resumenDesplazamiento = construirResumenDesplazamiento(payload.desplazamiento);
+  const resumenIntervension = construirResumenIntervension(payload.intervension);
+  const resumenGeo = [resumenDesplazamiento, resumenIntervension].filter(Boolean).join(' | ');
+  
   const firmaEntrada = limpiarTexto(payload.firma_url);
   const fotosIntervencionEntrada = Array.isArray(payload.fotos_intervencion) ? payload.fotos_intervencion : [];
   const ahoraIso = new Date().toISOString();
-  const fechaInicio = resolverFechaIso(payload.seguimientoTiempo?.inicioIso, ahoraIso);
-  const fechaFin = resolverFechaIso(payload.seguimientoTiempo?.finIso, ahoraIso);
-
-  if (!clienteId) {
-    throw new Error('Debes seleccionar un cliente para registrar el parte.');
-  }
+  
+  // Usar desplazamiento e intervención para calcular fechas
+  const fechaInicio = resolverFechaIso(payload.desplazamiento?.inicioIso || payload.seguimientoTiempo?.inicioIso, ahoraIso);
+  const fechaFin = resolverFechaIso(payload.intervension?.finIso || payload.seguimientoTiempo?.finIso, ahoraIso);
 
   if (!tecnicoId) {
     throw new Error('Debes asignar un técnico para registrar el parte.');
@@ -257,6 +477,23 @@ export async function crearParteTrabajo(payload) {
 
   if (!firmaEntrada) {
     throw new Error('La firma del cliente es obligatoria para registrar el parte.');
+  }
+
+  if (!ordenIdEntrada && !clienteId && clienteNombreEntrada) {
+    const cliente = await resolverOCrearClientePorNombre(supabase, clienteNombreEntrada);
+    clienteId = cliente?.id || '';
+  }
+
+  if (!clienteId) {
+    throw new Error('Debes seleccionar o indicar un cliente para registrar el parte.');
+  }
+
+  if (!ordenIdEntrada && !equipoId && equipoNombreEntrada) {
+    const equipo = await resolverOCrearEquipoPorNombre(supabase, {
+      clienteId,
+      nombreEquipo: equipoNombreEntrada,
+    });
+    equipoId = equipo?.id || null;
   }
 
   const [clienteRsp, tecnicoRsp, equipoRsp] = await Promise.all([

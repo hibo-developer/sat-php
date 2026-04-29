@@ -40,6 +40,54 @@ const OPCIONES_ESTADO_EDITABLE = [
   { value: 'pausado', label: 'Pausado' },
 ];
 
+function obtenerFechaRegeneracionDesdeUrl(urlInforme) {
+  const url = String(urlInforme || '');
+  const coincidencia = /informe-parte-[^-]+-(\d+)\.pdf/i.exec(url);
+  if (!coincidencia) {
+    return null;
+  }
+
+  const epochMs = Number.parseInt(coincidencia[1], 10);
+  if (!Number.isFinite(epochMs) || epochMs <= 0) {
+    return null;
+  }
+
+  const fecha = new Date(epochMs);
+  return Number.isFinite(fecha.getTime()) ? fecha.toLocaleString('es-ES') : null;
+}
+
+function esFinDeSemana(fechaIso) {
+  if (!fechaIso) {
+    return false;
+  }
+
+  const fecha = new Date(fechaIso);
+  if (Number.isNaN(fecha.getTime())) {
+    return false;
+  }
+
+  const dia = fecha.getDay();
+  return dia === 0 || dia === 6;
+}
+
+function esFueraHorarioLaboral(fechaIso) {
+  if (!fechaIso) {
+    return false;
+  }
+
+  const fecha = new Date(fechaIso);
+  if (Number.isNaN(fecha.getTime())) {
+    return false;
+  }
+
+  const hora = fecha.getHours();
+  return hora < 8 || hora >= 18;
+}
+
+function detectarFueraHorario(inicioIso, finIso) {
+  return esFueraHorarioLaboral(inicioIso) || esFueraHorarioLaboral(finIso);
+}
+
 function columnaExcel(indice) {
   let n = indice;
   let resultado = '';
@@ -572,17 +620,44 @@ function TarjetaOrden({
   accionEnCurso,
   onFinalizar,
   onActualizar,
+  onValorarFinalizada,
+  onEliminar,
   onNotificar,
   onIrAParte,
   puedeEditarOrden,
+  puedeValorarFinalizada,
+  puedeEliminarOrden,
 }) {
   const { icono: IconoEstado, clase } = estilosEstado[orden.estado] || estilosEstado.Pendiente;
+  const fechaRegeneracionInforme = obtenerFechaRegeneracionDesdeUrl(orden.informePdfUrl);
   const [mostrarEdicion, setMostrarEdicion] = useState(false);
+  const [mostrarValoracion, setMostrarValoracion] = useState(false);
+  const [mostrarEliminar, setMostrarEliminar] = useState(false);
+  const [copiaGuardada, setCopiaGuardada] = useState(false);
   const [mensajeEdicion, setMensajeEdicion] = useState('');
+  const [mensajeValoracion, setMensajeValoracion] = useState('');
+  const [mensajeEliminacion, setMensajeEliminacion] = useState('');
+  const aplicaRecargoFestivoPorDefecto = typeof orden.aplicaRecargoFestivo === 'boolean'
+    ? orden.aplicaRecargoFestivo
+    : esFinDeSemana(orden.fechaInicioIso);
+  const aplicaRecargoFueraHorarioPorDefecto = typeof orden.aplicaRecargoFueraHorario === 'boolean'
+    ? orden.aplicaRecargoFueraHorario
+    : detectarFueraHorario(orden.fechaInicioIso, orden.fechaFinIso);
   const [formularioEdicion, setFormularioEdicion] = useState({
     tecnico_id: orden.tecnicoId || '',
     prioridad: orden.prioridad || 'media',
     estado: orden.estado === 'En Proceso' ? 'en_proceso' : orden.estado === 'Pausado' ? 'pausado' : 'pendiente',
+  });
+  const [formularioValoracion, setFormularioValoracion] = useState({
+    coste_materiales_editable: Number(orden.costeMaterialesEditable || orden.costeMateriales || 0).toFixed(2),
+    tarifa_mano_obra_hora: Number(orden.tarifaManoObraHora || 0).toFixed(2),
+    horas_mano_obra: Number(orden.horasManoObra || 0).toFixed(2),
+    tarifa_desplazamiento_km: Number(orden.tarifaDesplazamientoKm || 0).toFixed(2),
+    km_desplazamiento_facturables: Number(orden.kmDesplazamientoFacturables || 0).toFixed(2),
+    recargo_festivo_pct: Number(orden.recargoFestivoPct ?? 25).toFixed(2),
+    recargo_fuera_horario_pct: Number(orden.recargoFueraHorarioPct ?? 20).toFixed(2),
+    aplica_recargo_festivo: aplicaRecargoFestivoPorDefecto,
+    aplica_recargo_fuera_horario: aplicaRecargoFueraHorarioPorDefecto,
   });
 
   useEffect(() => {
@@ -592,6 +667,40 @@ function TarjetaOrden({
       estado: orden.estado === 'En Proceso' ? 'en_proceso' : orden.estado === 'Pausado' ? 'pausado' : 'pendiente',
     });
   }, [orden.estado, orden.prioridad, orden.tecnicoId]);
+
+  useEffect(() => {
+    const siguienteAplicaRecargoFestivo = typeof orden.aplicaRecargoFestivo === 'boolean'
+      ? orden.aplicaRecargoFestivo
+      : esFinDeSemana(orden.fechaInicioIso);
+    const siguienteAplicaRecargoFueraHorario = typeof orden.aplicaRecargoFueraHorario === 'boolean'
+      ? orden.aplicaRecargoFueraHorario
+      : detectarFueraHorario(orden.fechaInicioIso, orden.fechaFinIso);
+
+    setFormularioValoracion({
+      coste_materiales_editable: Number(orden.costeMaterialesEditable || orden.costeMateriales || 0).toFixed(2),
+      tarifa_mano_obra_hora: Number(orden.tarifaManoObraHora || 0).toFixed(2),
+      horas_mano_obra: Number(orden.horasManoObra || 0).toFixed(2),
+      tarifa_desplazamiento_km: Number(orden.tarifaDesplazamientoKm || 0).toFixed(2),
+      km_desplazamiento_facturables: Number(orden.kmDesplazamientoFacturables || 0).toFixed(2),
+      recargo_festivo_pct: Number(orden.recargoFestivoPct ?? 25).toFixed(2),
+      recargo_fuera_horario_pct: Number(orden.recargoFueraHorarioPct ?? 20).toFixed(2),
+      aplica_recargo_festivo: siguienteAplicaRecargoFestivo,
+      aplica_recargo_fuera_horario: siguienteAplicaRecargoFueraHorario,
+    });
+  }, [
+    orden.costeMateriales,
+    orden.costeMaterialesEditable,
+    orden.tarifaManoObraHora,
+    orden.horasManoObra,
+    orden.tarifaDesplazamientoKm,
+    orden.kmDesplazamientoFacturables,
+    orden.recargoFestivoPct,
+    orden.recargoFueraHorarioPct,
+    orden.aplicaRecargoFestivo,
+    orden.aplicaRecargoFueraHorario,
+    orden.fechaInicioIso,
+    orden.fechaFinIso,
+  ]);
 
   async function guardarEdicion(evento) {
     evento.preventDefault();
@@ -615,6 +724,89 @@ function TarjetaOrden({
       });
     }
   }
+
+  async function guardarValoracion(evento) {
+    evento.preventDefault();
+    setMensajeValoracion('');
+
+    try {
+      await onValorarFinalizada(orden.id, formularioValoracion);
+      setMostrarValoracion(false);
+      setMensajeValoracion('Valoración guardada e informe regenerado correctamente.');
+      onNotificar({
+        tipo: 'exito',
+        titulo: 'Valoración actualizada',
+        descripcion: 'Se actualizaron importes y se regeneró el informe PDF de la orden.',
+      });
+    } catch (err) {
+      setMensajeValoracion(err.message || 'No se pudo guardar la valoración.');
+      onNotificar({
+        tipo: 'error',
+        titulo: 'No se pudo actualizar la valoración',
+        descripcion: err.message || 'Revisa los importes y vuelve a intentarlo.',
+      });
+    }
+  }
+
+  function descargarCopiaJsonOrden() {
+    const payload = {
+      generadoEn: new Date().toISOString(),
+      orden,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = `copia-orden-${orden.numero_ticket || orden.id}.json`;
+    document.body.appendChild(enlace);
+    enlace.click();
+    document.body.removeChild(enlace);
+    URL.revokeObjectURL(url);
+  }
+
+  async function confirmarEliminacion() {
+    setMensajeEliminacion('');
+    try {
+      await onEliminar(orden.id);
+      setMostrarEliminar(false);
+      setCopiaGuardada(false);
+      onNotificar({
+        tipo: 'exito',
+        titulo: 'Orden eliminada',
+        descripcion: `La orden ${orden.numero_ticket ? `SAT-${orden.numero_ticket}` : orden.id} fue eliminada correctamente.`,
+      });
+    } catch (err) {
+      setMensajeEliminacion(err.message || 'No se pudo eliminar la orden.');
+      onNotificar({
+        tipo: 'error',
+        titulo: 'No se pudo eliminar la orden',
+        descripcion: err.message || 'Inténtalo de nuevo en unos segundos.',
+      });
+    }
+  }
+
+  function alternarEliminar() {
+    setMostrarEliminar((previo) => !previo);
+    setMensajeEliminacion('');
+    setCopiaGuardada(false);
+  }
+
+  const costeManoObraBasePreview = Number(formularioValoracion.tarifa_mano_obra_hora || 0)
+    * Number(formularioValoracion.horas_mano_obra || 0);
+  const porcentajeRecargoManoObraPreview = (formularioValoracion.aplica_recargo_festivo
+    ? Number(formularioValoracion.recargo_festivo_pct || 0)
+    : 0)
+    + (formularioValoracion.aplica_recargo_fuera_horario
+      ? Number(formularioValoracion.recargo_fuera_horario_pct || 0)
+      : 0);
+  const recargoManoObraEurosPreview = costeManoObraBasePreview * (porcentajeRecargoManoObraPreview / 100);
+  const costeManoObraPreview = costeManoObraBasePreview + recargoManoObraEurosPreview;
+  const costeDesplazamientoPreview = Number(formularioValoracion.tarifa_desplazamiento_km || 0)
+    * Number(formularioValoracion.km_desplazamiento_facturables || 0);
+  const costeTotalPreview = Number(formularioValoracion.coste_materiales_editable || 0)
+    + costeManoObraPreview
+    + costeDesplazamientoPreview;
 
   return (
     <article className="rounded-2xl border border-marca-100 bg-white p-4 shadow-tarjeta">
@@ -650,6 +842,19 @@ function TarjetaOrden({
 
       {orden.estado === 'Finalizado' && (
         <div className="mt-3 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+          {fechaRegeneracionInforme && (
+            <p className="text-xs font-semibold text-emerald-800">
+              Última regeneración: {fechaRegeneracionInforme}
+            </p>
+          )}
+          <div className="space-y-1 rounded-lg border border-emerald-200 bg-white p-2 text-xs text-slate-700">
+            <p><span className="font-semibold">Materiales:</span> {Number(orden.costeMaterialesEditable || 0).toFixed(2)} €</p>
+            <p><span className="font-semibold">Mano de obra:</span> {Number(orden.costeManoObraTotal || 0).toFixed(2)} €</p>
+            <p><span className="font-semibold">Precio km:</span> {Number(orden.tarifaDesplazamientoKm || 0).toFixed(2)} €/km</p>
+            <p><span className="font-semibold">Desplazamiento:</span> {Number(orden.costeDesplazamientoTotal || 0).toFixed(2)} €</p>
+            <p className="font-bold text-emerald-800">Total: {Number(orden.costeTotal || orden.costeMateriales || 0).toFixed(2)} €</p>
+          </div>
+
           {orden.informePdfUrl && (
             <a
               href={orden.informePdfUrl}
@@ -661,6 +866,165 @@ function TarjetaOrden({
           )}
           {!orden.informePdfUrl && (
             <p className="text-xs font-semibold text-emerald-800">Informe PDF no disponible.</p>
+          )}
+
+          {puedeValorarFinalizada && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setMostrarValoracion((previo) => !previo);
+                  setMensajeValoracion('');
+                }}
+                className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800"
+              >
+                {mostrarValoracion ? 'Cancelar valoración' : 'Editar valoración y regenerar informe'}
+              </button>
+
+              {mostrarValoracion && (
+                <form onSubmit={guardarValoracion} className="space-y-2 rounded-xl border border-emerald-200 bg-white p-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-700">Materiales (€)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formularioValoracion.coste_materiales_editable}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, coste_materiales_editable: evento.target.value }))}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-700">Tarifa mano de obra (€/h)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formularioValoracion.tarifa_mano_obra_hora}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, tarifa_mano_obra_hora: evento.target.value }))}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-700">Horas mano de obra</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formularioValoracion.horas_mano_obra}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, horas_mano_obra: evento.target.value }))}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-700">Tarifa desplazamiento (€/km)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formularioValoracion.tarifa_desplazamiento_km}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, tarifa_desplazamiento_km: evento.target.value }))}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-700">Km desplazamiento facturables</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formularioValoracion.km_desplazamiento_facturables}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, km_desplazamiento_facturables: evento.target.value }))}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                    <p className="font-semibold">Recargos mano de obra</p>
+                    <p>Horario estándar: 08:00 - 18:00</p>
+                  </div>
+
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(formularioValoracion.aplica_recargo_festivo)}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, aplica_recargo_festivo: evento.target.checked }))}
+                    />
+                    Aplicar recargo por festivo
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-700">Recargo festivo (%)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formularioValoracion.recargo_festivo_pct}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, recargo_festivo_pct: evento.target.value }))}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(formularioValoracion.aplica_recargo_fuera_horario)}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, aplica_recargo_fuera_horario: evento.target.checked }))}
+                    />
+                    Aplicar recargo fuera de horario (08:00-18:00)
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-700">Recargo fuera de horario (%)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formularioValoracion.recargo_fuera_horario_pct}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, recargo_fuera_horario_pct: evento.target.value }))}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                    <p>Mano de obra base: {costeManoObraBasePreview.toFixed(2)} €</p>
+                    <p>Recargo mano de obra ({porcentajeRecargoManoObraPreview.toFixed(2)}%): {recargoManoObraEurosPreview.toFixed(2)} €</p>
+                    <p>Mano de obra total: {costeManoObraPreview.toFixed(2)} €</p>
+                    <p>Desplazamiento: {costeDesplazamientoPreview.toFixed(2)} €</p>
+                    <p className="font-bold">Total: {costeTotalPreview.toFixed(2)} €</p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={accionEnCurso}
+                    className="w-full rounded-xl bg-marca-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
+                  >
+                    {accionEnCurso ? 'Guardando y regenerando...' : 'Guardar valoración y regenerar informe'}
+                  </button>
+
+                  {mensajeValoracion && <p className="text-xs font-semibold text-slate-600">{mensajeValoracion}</p>}
+                </form>
+              )}
+            </>
+          )}
+
+          {puedeEliminarOrden && (
+            <BloqueEliminarOrden
+              orden={orden}
+              mostrarEliminar={mostrarEliminar}
+              copiaGuardada={copiaGuardada}
+              accionEnCurso={accionEnCurso}
+              mensajeEliminacion={mensajeEliminacion}
+              onAlternarEliminar={alternarEliminar}
+              onDescargarCopiaJsonOrden={descargarCopiaJsonOrden}
+              onCambiarCopiaGuardada={setCopiaGuardada}
+              onConfirmarEliminacion={confirmarEliminacion}
+              claseBotonToggle="w-full rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-bold text-rose-700"
+            />
           )}
         </div>
       )}
@@ -763,9 +1127,93 @@ function TarjetaOrden({
             </form>
           )}
 
+          {puedeEliminarOrden && (
+            <BloqueEliminarOrden
+              orden={orden}
+              mostrarEliminar={mostrarEliminar}
+              copiaGuardada={copiaGuardada}
+              accionEnCurso={accionEnCurso}
+              mensajeEliminacion={mensajeEliminacion}
+              onAlternarEliminar={alternarEliminar}
+              onDescargarCopiaJsonOrden={descargarCopiaJsonOrden}
+              onCambiarCopiaGuardada={setCopiaGuardada}
+              onConfirmarEliminacion={confirmarEliminacion}
+              claseBotonToggle="w-full rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 active:scale-95"
+            />
+          )}
+
         </div>
       )}
     </article>
+  );
+}
+
+function BloqueEliminarOrden({
+  orden,
+  mostrarEliminar,
+  copiaGuardada,
+  accionEnCurso,
+  mensajeEliminacion,
+  onAlternarEliminar,
+  onDescargarCopiaJsonOrden,
+  onCambiarCopiaGuardada,
+  onConfirmarEliminacion,
+  claseBotonToggle,
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        onClick={onAlternarEliminar}
+        className={claseBotonToggle}
+      >
+        {mostrarEliminar ? 'Cancelar eliminación' : 'Eliminar orden (admin)'}
+      </button>
+
+      {mostrarEliminar && (
+        <div className="space-y-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+          <p className="font-semibold">Antes de eliminar, guarda una copia del informe o de la orden.</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={onDescargarCopiaJsonOrden}
+              className="rounded-lg border border-rose-300 bg-white px-3 py-2 font-bold text-rose-700"
+            >
+              Descargar copia JSON
+            </button>
+            <a
+              href={orden.informePdfUrl || '#'}
+              download={`informe-${orden.numero_ticket || orden.id}.pdf`}
+              onClick={(evento) => {
+                if (!orden.informePdfUrl) {
+                  evento.preventDefault();
+                }
+              }}
+              className={`inline-flex items-center justify-center rounded-lg border px-3 py-2 font-bold ${orden.informePdfUrl ? 'border-rose-300 bg-white text-rose-700' : 'border-slate-300 bg-slate-100 text-slate-400 pointer-events-none'}`}
+            >
+              Descargar informe PDF
+            </a>
+          </div>
+          <label className="flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2 font-semibold text-rose-800">
+            <input
+              type="checkbox"
+              checked={copiaGuardada}
+              onChange={(evento) => onCambiarCopiaGuardada(evento.target.checked)}
+            />
+            Confirmo que ya guardé copia antes de eliminar.
+          </label>
+          <button
+            type="button"
+            onClick={onConfirmarEliminacion}
+            disabled={accionEnCurso || !copiaGuardada}
+            className="w-full rounded-lg bg-rose-600 px-3 py-2 font-bold text-white disabled:opacity-60"
+          >
+            {accionEnCurso ? 'Eliminando...' : 'Eliminar definitivamente'}
+          </button>
+          {mensajeEliminacion && <p className="font-semibold text-rose-700">{mensajeEliminacion}</p>}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -789,6 +1237,8 @@ export function ListaOrdenesView({ rolUsuario }) {
     crearOrdenDesdeFormulario,
     finalizarOrden,
     actualizarOrden,
+    actualizarValoracionFinalizada,
+    eliminarOrden,
   } = useOrdenes();
 
   useEffect(() => {
@@ -884,6 +1334,8 @@ export function ListaOrdenesView({ rolUsuario }) {
   const esTecnico = rolUsuario === 'tecnico';
   const puedeCrearOrdenes = rolUsuario !== 'tecnico';
   const puedeEditarOrden = rolUsuario !== 'tecnico';
+  const puedeValorarFinalizada = rolUsuario === 'admin';
+  const puedeEliminarOrden = rolUsuario === 'admin';
   const mttrMinutos = ordenesFinalizadas.length
     ? Math.round(
       ordenesFinalizadas.reduce((acc, orden) => acc + Number(orden.tiempoEmpleadoMinutos || 0), 0)
@@ -1264,9 +1716,13 @@ export function ListaOrdenesView({ rolUsuario }) {
               accionEnCurso={accionEnCurso}
               onFinalizar={finalizarOrden}
               onActualizar={actualizarOrden}
+              onValorarFinalizada={actualizarValoracionFinalizada}
+              onEliminar={eliminarOrden}
               onNotificar={notificar}
               onIrAParte={irAParteDesdeOrden}
               puedeEditarOrden={puedeEditarOrden}
+              puedeValorarFinalizada={puedeValorarFinalizada}
+              puedeEliminarOrden={puedeEliminarOrden}
             />
           ))}
 

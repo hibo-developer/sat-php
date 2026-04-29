@@ -60,6 +60,21 @@ function Get-BuildArtifact([string]$outputDir) {
   return $artifact
 }
 
+function Publish-ReleaseArtifact([string]$repoRoot, [string]$artifactPath) {
+  $releaseRoot = Join-Path $repoRoot "release"
+  $stamp = Get-Date -Format "yyyy-MM-dd_HHmm"
+  $releaseFolder = Join-Path $releaseRoot $stamp
+
+  Ensure-ReleaseFolder $releaseRoot
+  Ensure-ReleaseFolder $releaseFolder
+
+  $artifactName = Split-Path $artifactPath -Leaf
+  $destPath = Join-Path $releaseFolder $artifactName
+  Copy-Item -Path $artifactPath -Destination $destPath -Force
+
+  return $destPath
+}
+
 Push-Location $repoRoot
 try {
   Write-Host "[1/4] Build web (Vite)..."
@@ -96,8 +111,12 @@ try {
     $artifactPath = $finalArtifactPath
   }
 
+  $releaseArtifactPath = Publish-ReleaseArtifact $repoRoot $artifactPath
+
   Write-Host "Build desktop completado correctamente:"
   Get-Item $artifactPath | Select-Object FullName, Length, LastWriteTime | Format-List
+  Write-Host "Publicacion en release completada:"
+  Get-Item $releaseArtifactPath | Select-Object FullName, Length, LastWriteTime | Format-List
 }
 finally {
   Pop-Location

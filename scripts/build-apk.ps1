@@ -1,3 +1,7 @@
+param(
+  [switch]$Clean
+)
+
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -34,8 +38,13 @@ function Sync-CapacitorAndroid([string]$repoRoot) {
   }
 }
 
-function Build-GradleRelease([string]$androidRoot) {
-  .\gradlew.bat assembleRelease --quiet
+function Build-GradleRelease([string]$androidRoot, [bool]$forceClean) {
+  $gradleArgs = @('assembleRelease', '--quiet')
+  if ($forceClean) {
+    $gradleArgs = @('clean', 'assembleRelease', '--quiet')
+  }
+
+  .\gradlew.bat @gradleArgs
   if ($LASTEXITCODE -eq 0) {
     return
   }
@@ -48,10 +57,31 @@ function Build-GradleRelease([string]$androidRoot) {
   Remove-DirSafe (Join-Path $androidRoot "build")
   Remove-DirSafe (Join-Path $androidRoot "capacitor-cordova-android-plugins\build\intermediates")
 
-  .\gradlew.bat assembleRelease --quiet
+  .\gradlew.bat @gradleArgs
   if ($LASTEXITCODE -ne 0) {
     throw "Fallo en Gradle assembleRelease tras reintento (exit code $LASTEXITCODE). Cierra Android Studio/Explorer sobre carpeta android y pausa OneDrive temporalmente."
   }
+}
+
+function Ensure-Dir([string]$path) {
+  if (-not (Test-Path $path)) {
+    New-Item -ItemType Directory -Path $path | Out-Null
+  }
+}
+
+function Publish-ReleaseArtifact([string]$repoRoot, [string]$artifactPath) {
+  $releaseRoot = Join-Path $repoRoot "release"
+  $stamp = Get-Date -Format "yyyy-MM-dd_HHmm"
+  $releaseFolder = Join-Path $releaseRoot $stamp
+
+  Ensure-Dir $releaseRoot
+  Ensure-Dir $releaseFolder
+
+  $artifactName = Split-Path $artifactPath -Leaf
+  $destPath = Join-Path $releaseFolder $artifactName
+  Copy-Item -Path $artifactPath -Destination $destPath -Force
+
+  return $destPath
 }
 
 Push-Location $repoRoot
@@ -65,13 +95,18 @@ try {
   Write-Host "[2/3] Sync Capacitor Android..."
   Sync-CapacitorAndroid $repoRoot
 
-  Write-Host "[3/3] Build APK release..."
+  if ($Clean) {
+    Write-Host "[3/3] Build APK release (clean)..."
+  }
+  else {
+    Write-Host "[3/3] Build APK release..."
+  }
   $apkPath = Join-Path $repoRoot "android\app\build\outputs\apk\release\app-release.apk"
   $apkPrevio = if (Test-Path $apkPath) { Get-Item $apkPath } else { $null }
 
   Push-Location (Join-Path $repoRoot "android")
   try {
-    Build-GradleRelease (Join-Path $repoRoot "android")
+    Build-GradleRelease (Join-Path $repoRoot "android") $Clean.IsPresent
   }
   finally {
     Pop-Location
@@ -82,12 +117,19 @@ try {
   }
 
   $apkActual = Get-Item $apkPath
-  if ($apkPrevio -and $apkActual.LastWriteTime -le $apkPrevio.LastWriteTime) {
+  if ($Clean) {
+    Write-Host "Compilacion limpia completada."
+  }
+  elseif ($apkPrevio -and $apkActual.LastWriteTime -le $apkPrevio.LastWriteTime) {
     Write-Warning "Gradle terminó sin generar un APK nuevo (UP-TO-DATE). Se reutiliza el APK existente."
   }
 
   Write-Host "APK generado correctamente:"
   $apkActual | Select-Object FullName, Length, LastWriteTime | Format-List
+
+  $releaseArtifactPath = Publish-ReleaseArtifact $repoRoot $apkPath
+  Write-Host "Publicacion en release completada:"
+  Get-Item $releaseArtifactPath | Select-Object FullName, Length, LastWriteTime | Format-List
 }
 finally {
   Pop-Location

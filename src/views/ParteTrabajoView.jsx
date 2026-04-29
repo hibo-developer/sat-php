@@ -108,6 +108,17 @@ function redondearMinutos(inicioIso, finIso) {
   return Math.max(1, Math.ceil(diferenciaMs / 60000));
 }
 
+function calcularMinutosPausasComida(pausasComida) {
+  const pausas = Array.isArray(pausasComida) ? pausasComida : [];
+  return pausas.reduce((acumulado, pausa) => {
+    if (!pausa?.inicioIso || !pausa?.finIso) {
+      return acumulado;
+    }
+
+    return acumulado + redondearMinutos(pausa.inicioIso, pausa.finIso);
+  }, 0);
+}
+
 function formatearUbicacion(ubicacion) {
   if (!ubicacion) {
     return 'No disponible';
@@ -120,10 +131,17 @@ function formatearLugar(ubicacion) {
   return ubicacion?.nombreLugar || 'No disponible';
 }
 
+function parsearNumeroDecimal(valor) {
+  const numero = Number.parseFloat(String(valor || '').replace(',', '.'));
+  return Number.isFinite(numero) ? numero : null;
+}
+
 const FORM_INICIAL = {
   orden_id: '',
   cliente_id: '',
+  cliente_nombre: '',
   equipo_id: '',
+  equipo_nombre: '',
   tecnico_id: '',
   nombre_firmante: '',
   descripcion_problema: '',
@@ -148,6 +166,25 @@ export function ParteTrabajoView() {
       prioridad: prefill.prioridad || 'media',
     };
   });
+  const [desplazamiento, setDesplazamiento] = useState({
+    inicioIso: null,
+    finIso: null,
+    ubicacionInicio: null,
+    ubicacionFin: null,
+    distanciaMetros: null,
+    minutosGeo: null,
+  });
+  const [intervension, setIntervension] = useState({
+    inicioIso: null,
+    finIso: null,
+    ubicacionInicio: null,
+    ubicacionFin: null,
+    distanciaMetros: null,
+    minutosGeo: null,
+    pausasComida: [],
+    pausaComidaActiva: null,
+  });
+  // Mantener para compatibilidad con lógica existente
   const [seguimientoTiempo, setSeguimientoTiempo] = useState({
     inicioIso: null,
     finIso: null,
@@ -168,6 +205,10 @@ export function ParteTrabajoView() {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [capturandoTiempo, setCapturandoTiempo] = useState(false);
+  const [capturandoDesplazamiento, setCapturandoDesplazamiento] = useState(false);
+  const [capturandoIntervension, setCapturandoIntervension] = useState(false);
+  const [capturandoPausaComida, setCapturandoPausaComida] = useState(false);
+  const [pendienteGeoIntervension, setPendienteGeoIntervension] = useState(false);
   const [firmaClienteDataUrl, setFirmaClienteDataUrl] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
@@ -272,6 +313,66 @@ export function ParteTrabajoView() {
         : 'Orden cargada en el parte.',
     );
   }, [location.state]);
+
+    useEffect(() => {
+      if (!pendienteGeoIntervension) {
+        return;
+      }
+
+      let cancelado = false;
+
+      async function registrarGeoInicioPendiente() {
+        if (!navigator.onLine) {
+          return;
+        }
+
+        try {
+          const ubicacion = await obtenerUbicacionActual();
+          const lugarResuelto = await resolverNombreLugar(ubicacion.latitud, ubicacion.longitud);
+
+          if (cancelado) {
+            return;
+          }
+
+          let actualizada = false;
+          setIntervension((prev) => {
+            if (!prev.inicioIso || prev.finIso || prev.ubicacionInicio) {
+              return prev;
+            }
+
+            actualizada = true;
+            return {
+              ...prev,
+              ubicacionInicio: {
+                ...ubicacion,
+                nombreLugar: lugarResuelto?.nombreLugar || null,
+                nombreLugarCompleto: lugarResuelto?.nombreLugarCompleto || null,
+              },
+            };
+          });
+
+          if (actualizada) {
+            setPendienteGeoIntervension(false);
+            setMensaje('Conexión recuperada: geolocalización de inicio de intervención registrada.');
+            setError('');
+          }
+        } catch {
+          // Reintentaremos en el siguiente evento "online" mientras siga activa.
+        }
+      }
+
+      function alVolverOnline() {
+        void registrarGeoInicioPendiente();
+      }
+
+      window.addEventListener('online', alVolverOnline);
+      void registrarGeoInicioPendiente();
+
+      return () => {
+        cancelado = true;
+        window.removeEventListener('online', alVolverOnline);
+      };
+    }, [pendienteGeoIntervension]);
 
   function prepararCanvasFirma() {
     const canvas = canvasFirmaRef.current;
@@ -453,9 +554,280 @@ export function ParteTrabajoView() {
     }
   }
 
+  async function iniciarDesplazamiento() {
+    setMensaje('');
+    setError('');
+    setCapturandoDesplazamiento(true);
+
+    try {
+      setDesplazamiento({
+        inicioIso: new Date().toISOString(),
+        finIso: null,
+        ubicacionInicio: null,
+        ubicacionFin: null,
+        distanciaMetros: null,
+        minutosGeo: null,
+      });
+      setMensaje('Desplazamiento iniciado (desde Cotepa fiscal).');
+    } finally {
+      setCapturandoDesplazamiento(false);
+    }
+  }
+
+  async function finalizarDesplazamiento() {
+    if (!desplazamiento.inicioIso) {
+      setError('Primero debes pulsar Inicio Desplazamiento.');
+      return;
+    }
+
+    setMensaje('');
+    setError('');
+    setCapturandoDesplazamiento(true);
+
+    try {
+      const ubicacionCliente = await obtenerUbicacionActual();
+      const lugarResuelto = await resolverNombreLugar(ubicacionCliente.latitud, ubicacionCliente.longitud);
+      const finIso = new Date().toISOString();
+      const minutosCalculados = redondearMinutos(desplazamiento.inicioIso, finIso);
+
+      const ubicacionCotepa = {
+        latitud: 39.4415,
+        longitud: -0.3820,
+        nombreLugar: 'Cotepa S.L., Paiporta',
+      };
+      const distanciaMetros = calcularDistanciaMetros(ubicacionCotepa, ubicacionCliente);
+
+      setDesplazamiento({
+        inicioIso: desplazamiento.inicioIso,
+        finIso,
+        ubicacionInicio: ubicacionCotepa,
+        ubicacionFin: {
+          ...ubicacionCliente,
+          nombreLugar: lugarResuelto?.nombreLugar || null,
+          nombreLugarCompleto: lugarResuelto?.nombreLugarCompleto || null,
+        },
+        distanciaMetros,
+        minutosGeo: minutosCalculados,
+      });
+      setMensaje('Desplazamiento finalizado. Distancia calculada (se facturará el doble: ida+vuelta).');
+    } catch (err) {
+      const finIso = new Date().toISOString();
+      const minutosCalculados = redondearMinutos(desplazamiento.inicioIso, finIso);
+
+      setDesplazamiento((prev) => ({
+        ...prev,
+        finIso,
+        minutosGeo: minutosCalculados,
+      }));
+      setError('No se pudo capturar ubicación del cliente.');
+    } finally {
+      setCapturandoDesplazamiento(false);
+    }
+  }
+
+  async function iniciarIntervension() {
+    setMensaje('');
+    setError('');
+    setCapturandoIntervension(true);
+
+    try {
+      const ubicacion = await obtenerUbicacionActual();
+      const lugarResuelto = await resolverNombreLugar(ubicacion.latitud, ubicacion.longitud);
+      setIntervension({
+        inicioIso: new Date().toISOString(),
+        finIso: null,
+        ubicacionInicio: {
+          ...ubicacion,
+          nombreLugar: lugarResuelto?.nombreLugar || null,
+          nombreLugarCompleto: lugarResuelto?.nombreLugarCompleto || null,
+        },
+        ubicacionFin: null,
+        distanciaMetros: null,
+        minutosGeo: null,
+        pausasComida: [],
+        pausaComidaActiva: null,
+      });
+      setPendienteGeoIntervension(false);
+      setMensaje('Intervención iniciada con geolocalización en cliente.');
+    } catch (err) {
+      const sinConexion = navigator.onLine === false;
+      setIntervension({
+        inicioIso: new Date().toISOString(),
+        finIso: null,
+        ubicacionInicio: null,
+        ubicacionFin: null,
+        distanciaMetros: null,
+        minutosGeo: null,
+        pausasComida: [],
+        pausaComidaActiva: null,
+      });
+      setPendienteGeoIntervension(sinConexion);
+      setMensaje(
+        sinConexion
+          ? 'Intervención iniciada con hora del sistema (sin conexión). Se registrará la geolocalización al recuperar internet.'
+          : 'Intervención iniciada (sin geolocalización).',
+      );
+      setError('');
+    } finally {
+      setCapturandoIntervension(false);
+    }
+  }
+
+  async function finalizarIntervension() {
+    if (!intervension.inicioIso) {
+      setError('Primero debes pulsar Inicio Intervención.');
+      return;
+    }
+
+    if (intervension.pausaComidaActiva?.inicioIso) {
+      setError('Debes cerrar la pausa de comida activa antes de finalizar la intervención.');
+      return;
+    }
+
+    setMensaje('');
+    setError('');
+    setCapturandoIntervension(true);
+
+    try {
+      const ubicacionFin = await obtenerUbicacionActual();
+      const lugarFinResuelto = await resolverNombreLugar(ubicacionFin.latitud, ubicacionFin.longitud);
+      const finIso = new Date().toISOString();
+      const minutosCalculados = redondearMinutos(intervension.inicioIso, finIso);
+      const minutosPausaComida = calcularMinutosPausasComida(intervension.pausasComida);
+      const minutosNetos = Math.max(1, minutosCalculados - minutosPausaComida);
+      const ubicacionFinConLugar = {
+        ...ubicacionFin,
+        nombreLugar: lugarFinResuelto?.nombreLugar || null,
+        nombreLugarCompleto: lugarFinResuelto?.nombreLugarCompleto || null,
+      };
+      const distanciaMetros = calcularDistanciaMetros(intervension.ubicacionInicio, ubicacionFinConLugar);
+
+      setIntervension((prev) => ({
+        ...prev,
+        finIso,
+        ubicacionFin: ubicacionFinConLugar,
+        distanciaMetros,
+        minutosGeo: minutosNetos,
+      }));
+      setPendienteGeoIntervension(false);
+      setFormulario((prev) => ({ ...prev, tiempo_empleado: String(minutosNetos) }));
+      setMensaje('Intervención finalizada. Tiempo neto calculado descontando pausas de comida.');
+    } catch (err) {
+      const finIso = new Date().toISOString();
+      const minutosCalculados = redondearMinutos(intervension.inicioIso, finIso);
+      const minutosPausaComida = calcularMinutosPausasComida(intervension.pausasComida);
+      const minutosNetos = Math.max(1, minutosCalculados - minutosPausaComida);
+
+      setIntervension((prev) => ({
+        ...prev,
+        finIso,
+        minutosGeo: minutosNetos,
+      }));
+      setPendienteGeoIntervension(false);
+      setFormulario((prev) => ({ ...prev, tiempo_empleado: String(minutosNetos) }));
+      setError('No se pudo capturar ubicación final.');
+    } finally {
+      setCapturandoIntervension(false);
+    }
+  }
+
+  function iniciarPausaComida() {
+    if (!intervension.inicioIso || intervension.finIso) {
+      setError('La pausa de comida solo puede iniciarse durante una intervención activa.');
+      return;
+    }
+
+    if (intervension.pausaComidaActiva?.inicioIso) {
+      setError('Ya hay una pausa de comida activa.');
+      return;
+    }
+
+    setError('');
+    setMensaje('');
+    setCapturandoPausaComida(true);
+
+    setIntervension((prev) => ({
+      ...prev,
+      pausaComidaActiva: {
+        inicioIso: new Date().toISOString(),
+      },
+    }));
+
+    setMensaje('Pausa de comida iniciada.');
+    setCapturandoPausaComida(false);
+  }
+
+  function finalizarPausaComida() {
+    if (!intervension.pausaComidaActiva?.inicioIso) {
+      setError('No hay una pausa de comida activa para finalizar.');
+      return;
+    }
+
+    const finIso = new Date().toISOString();
+    const inicioIso = intervension.pausaComidaActiva.inicioIso;
+    const minutos = redondearMinutos(inicioIso, finIso);
+
+    setError('');
+    setMensaje('');
+    setCapturandoPausaComida(true);
+
+    setIntervension((prev) => ({
+      ...prev,
+      pausasComida: [...(prev.pausasComida || []), { inicioIso, finIso, minutos }],
+      pausaComidaActiva: null,
+    }));
+
+    setMensaje('Pausa de comida finalizada y registrada.');
+    setCapturandoPausaComida(false);
+  }
+
+  function eliminarPausaComida(indiceObjetivo) {
+    if (!Number.isInteger(indiceObjetivo) || indiceObjetivo < 0) {
+      return;
+    }
+
+    setError('');
+    setMensaje('');
+
+    setIntervension((prev) => {
+      const pausasActuales = Array.isArray(prev.pausasComida) ? prev.pausasComida : [];
+      const pausasActualizadas = pausasActuales.filter((_, indice) => indice !== indiceObjetivo);
+
+      if (prev.inicioIso && prev.finIso) {
+        const minutosBrutos = redondearMinutos(prev.inicioIso, prev.finIso);
+        const minutosPausa = calcularMinutosPausasComida(pausasActualizadas);
+        const minutosNetos = Math.max(1, minutosBrutos - minutosPausa);
+        setFormulario((actual) => ({ ...actual, tiempo_empleado: String(minutosNetos) }));
+
+        return {
+          ...prev,
+          pausasComida: pausasActualizadas,
+          minutosGeo: minutosNetos,
+        };
+      }
+
+      return {
+        ...prev,
+        pausasComida: pausasActualizadas,
+      };
+    });
+
+    setMensaje('Pausa de comida eliminada.');
+  }
+
   function manejarSeleccionFotos(evento) {
     const archivos = Array.from(evento.target.files || []);
-    setFotosIntervencion(archivos);
+    setFotosIntervencion((previas) => {
+      const mapa = new Map();
+      [...previas, ...archivos].forEach((archivo) => {
+        const clave = `${archivo.name}-${archivo.size}-${archivo.lastModified}`;
+        mapa.set(clave, archivo);
+      });
+      return Array.from(mapa.values());
+    });
+
+    // Permite volver a seleccionar el mismo archivo en una nueva acción.
+    evento.target.value = '';
   }
 
   function quitarFotoIntervencion(indiceObjetivo) {
@@ -467,8 +839,18 @@ export function ParteTrabajoView() {
     setMensaje('');
     setError('');
 
-    if (!seguimientoTiempo.inicioIso || !seguimientoTiempo.finIso) {
-      setError('Debes registrar Inicio y Fin para calcular el tiempo antes de guardar el parte.');
+    if (!desplazamiento.inicioIso || !desplazamiento.finIso) {
+      setError('Debes completar el desplazamiento (Inicio y Fin) antes de guardar el parte.');
+      return;
+    }
+
+    if (!intervension.inicioIso || !intervension.finIso) {
+      setError('Debes completar la intervención (Inicio y Fin) antes de guardar el parte.');
+      return;
+    }
+
+    if (intervension.pausaComidaActiva?.inicioIso) {
+      setError('Debes finalizar la pausa de comida activa antes de guardar el parte.');
       return;
     }
 
@@ -482,23 +864,33 @@ export function ParteTrabajoView() {
       return;
     }
 
+    if (!formulario.orden_id && !formulario.cliente_id && !(formulario.cliente_nombre || '').trim()) {
+      setError('En partes sin orden, selecciona un cliente o escribe su nombre para crearlo/usarlo.');
+      return;
+    }
+
     setGuardando(true);
 
     try {
       const parte = await crearParteTrabajo({
         ...formulario,
         orden_id: formulario.orden_id,
+        cliente_nombre: formulario.cliente_nombre,
         equipo_id: formulario.equipo_id || null,
+        equipo_nombre: formulario.equipo_nombre,
         tecnico_id: formulario.tecnico_id || null,
         materialesInventario: materialesSeleccionados,
         fotos_intervencion: fotosIntervencion,
-        seguimientoTiempo,
+        desplazamiento,
+        intervension,
         firma_url: firmaClienteDataUrl,
       });
 
       const clienteSeleccionado = clientes.find((c) => c.id === formulario.cliente_id);
       const equipoSeleccionado = equipos.find((e) => e.id === formulario.equipo_id);
       const tecnicoSeleccionado = tecnicos.find((t) => t.id === formulario.tecnico_id);
+      const clienteNombreInforme = clienteSeleccionado?.nombre || (formulario.cliente_nombre || '').trim() || 'Cliente no identificado';
+      const equipoNombreInforme = equipoSeleccionado?.nombre || (formulario.equipo_nombre || '').trim() || 'Sin equipo';
       const materialesInventarioTexto = materialesSeleccionados
         .map((uso) => {
           const material = materialesInventario.find((m) => m.id === uso.material_id);
@@ -522,9 +914,10 @@ export function ParteTrabajoView() {
           ...formulario,
           materialesTexto: materialesTextoInforme,
         },
-        seguimientoTiempo,
-        clienteNombre: clienteSeleccionado?.nombre || 'Cliente no identificado',
-        equipoNombre: equipoSeleccionado?.nombre || 'Sin equipo',
+        desplazamiento,
+        intervension,
+        clienteNombre: clienteNombreInforme,
+        equipoNombre: equipoNombreInforme,
         tecnicoNombre: tecnicoSeleccionado?.nombre || 'Tecnico no identificado',
         nombreFirmante: formulario.nombre_firmante,
         firmaUrl: parte.firma_url || '',
@@ -539,6 +932,25 @@ export function ParteTrabajoView() {
 
       setMensaje('Parte registrado. Informe disponible.');
       setFormulario(FORM_INICIAL);
+      setDesplazamiento({
+        inicioIso: null,
+        finIso: null,
+        ubicacionInicio: null,
+        ubicacionFin: null,
+        distanciaMetros: null,
+        minutosGeo: null,
+      });
+      setIntervension({
+        inicioIso: null,
+        finIso: null,
+        ubicacionInicio: null,
+        ubicacionFin: null,
+        distanciaMetros: null,
+        minutosGeo: null,
+        pausasComida: [],
+        pausaComidaActiva: null,
+      });
+      setPendienteGeoIntervension(false);
       setSeguimientoTiempo({
         inicioIso: null,
         finIso: null,
@@ -593,6 +1005,45 @@ export function ParteTrabajoView() {
     setMaterialesSeleccionados((prev) => prev.filter((item) => item.material_id !== materialId));
   }
 
+  function calcularTotalMaterialesPreview() {
+    const totalInventario = materialesSeleccionados.reduce((acumulado, uso) => {
+      const material = materialesInventario.find((item) => item.id === uso.material_id);
+      const precioUnitario = parsearNumeroDecimal(material?.precio_ref);
+      if (!Number.isFinite(precioUnitario)) {
+        return acumulado;
+      }
+
+      return acumulado + (uso.cantidad * precioUnitario);
+    }, 0);
+
+    const totalManual = (formulario.materialesTexto || '')
+      .split('\n')
+      .map((linea) => linea.trim())
+      .filter(Boolean)
+      .reduce((acumulado, linea) => {
+        const [, cantidadRaw, precioRaw] = linea.split(';').map((v) => (v || '').trim());
+        const cantidad = Number.parseInt(cantidadRaw, 10);
+        const precioUnitario = parsearNumeroDecimal(precioRaw);
+
+        if (!Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(precioUnitario)) {
+          return acumulado;
+        }
+
+        return acumulado + (cantidad * precioUnitario);
+      }, 0);
+
+    return totalInventario + totalManual;
+  }
+
+  const totalMaterialesPreview = calcularTotalMaterialesPreview();
+  const minutosPausaComida = calcularMinutosPausasComida(intervension.pausasComida);
+  const minutosIntervensionBrutos = (intervension.inicioIso && intervension.finIso)
+    ? redondearMinutos(intervension.inicioIso, intervension.finIso)
+    : null;
+  const minutosIntervensionNetos = Number.isFinite(minutosIntervensionBrutos)
+    ? Math.max(1, minutosIntervensionBrutos - minutosPausaComida)
+    : null;
+
   if (!tieneConfiguracionSupabase()) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
@@ -625,51 +1076,153 @@ export function ParteTrabajoView() {
         </p>
 
         <div className="rounded-xl border border-marca-200 bg-marca-50 p-3 lg:col-span-2">
-          <p className="text-xs font-semibold text-marca-900">Control de tiempo por inicio/fin + geolocalización</p>
+          <p className="text-xs font-semibold text-marca-900">Fase 1: Desplazamiento (desde Cotepa)</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={iniciarSeguimientoTiempo}
-              disabled={capturandoTiempo || guardando}
-              className="rounded-xl border border-marca-300 bg-white px-3 py-2 text-xs font-semibold text-marca-900 disabled:opacity-60"
+              onClick={iniciarDesplazamiento}
+              disabled={capturandoDesplazamiento || guardando || desplazamiento.inicioIso}
+              className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 disabled:opacity-60"
             >
-              Inicio
+              Inicio Desplazamiento
             </button>
             <button
               type="button"
-              onClick={finalizarSeguimientoTiempo}
-              disabled={capturandoTiempo || guardando || !seguimientoTiempo.inicioIso}
-              className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 disabled:opacity-60"
+              onClick={finalizarDesplazamiento}
+              disabled={capturandoDesplazamiento || guardando || !desplazamiento.inicioIso || desplazamiento.finIso}
+              className="rounded-xl border border-blue-400 bg-blue-100 px-3 py-2 text-xs font-semibold text-blue-900 disabled:opacity-60"
             >
-              Fin
+              Fin Desplazamiento
             </button>
           </div>
           <p className="mt-2 text-xs text-slate-700">
-            Inicio: {seguimientoTiempo.inicioIso ? new Date(seguimientoTiempo.inicioIso).toLocaleString('es-ES') : 'No iniciado'}
+            Inicio: {desplazamiento.inicioIso ? new Date(desplazamiento.inicioIso).toLocaleString('es-ES') : 'No iniciado'}
           </p>
           <p className="text-xs text-slate-700">
-            Fin: {seguimientoTiempo.finIso ? new Date(seguimientoTiempo.finIso).toLocaleString('es-ES') : 'No finalizado'}
-          </p>
-          <p className="text-xs text-slate-700">Geo inicio: {formatearUbicacion(seguimientoTiempo.ubicacionInicio)}</p>
-          <p className="text-xs text-slate-700">Lugar inicio: {formatearLugar(seguimientoTiempo.ubicacionInicio)}</p>
-          <p className="text-xs text-slate-700">Geo fin: {formatearUbicacion(seguimientoTiempo.ubicacionFin)}</p>
-          <p className="text-xs text-slate-700">Lugar fin: {formatearLugar(seguimientoTiempo.ubicacionFin)}</p>
-          <p className="text-xs text-slate-700">
-            Distancia geo: {Number.isFinite(seguimientoTiempo.distanciaMetros) ? `${seguimientoTiempo.distanciaMetros} m` : 'No disponible'}
+            Fin: {desplazamiento.finIso ? new Date(desplazamiento.finIso).toLocaleString('es-ES') : 'No finalizado'}
           </p>
           <p className="text-xs text-slate-700">
-            Tiempo calculado por geolocalización: {Number.isFinite(seguimientoTiempo.minutosGeo) ? `${seguimientoTiempo.minutosGeo} min` : 'Pendiente'}
+            Origen: {desplazamiento.ubicacionInicio ? `${desplazamiento.ubicacionInicio.nombreLugar}` : 'Cotepa S.L., Paiporta, Valencia (pendiente)'}
+          </p>
+          <p className="text-xs text-slate-700">
+            Destino: {desplazamiento.ubicacionFin ? formatearLugar(desplazamiento.ubicacionFin) : 'No disponible'}
+          </p>
+          <p className="text-xs text-slate-700">
+            Distancia: {Number.isFinite(desplazamiento.distanciaMetros)
+              ? `${(desplazamiento.distanciaMetros / 1000).toFixed(2)} km (facturación: ${((desplazamiento.distanciaMetros * 2) / 1000).toFixed(2)} km)`
+              : 'No calculada'}
+          </p>
+          <p className="text-xs text-slate-700">
+            Tiempo desplazamiento: {Number.isFinite(desplazamiento.minutosGeo)
+              ? `${desplazamiento.minutosGeo} min (facturación: ${desplazamiento.minutosGeo * 2} min)`
+              : (desplazamiento.inicioIso && desplazamiento.finIso)
+                ? `${redondearMinutos(desplazamiento.inicioIso, desplazamiento.finIso)} min (facturación: ${redondearMinutos(desplazamiento.inicioIso, desplazamiento.finIso) * 2} min)`
+                : 'Pendiente'}
+          </p>
+
+          <p className="mt-4 text-xs font-semibold text-marca-900">Fase 2: Intervención (en cliente por geolocalización)</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={iniciarIntervension}
+              disabled={capturandoIntervension || guardando || !desplazamiento.finIso || intervension.inicioIso}
+              className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 disabled:opacity-60"
+            >
+              Inicio Intervención
+            </button>
+            <button
+              type="button"
+              onClick={finalizarIntervension}
+              disabled={capturandoIntervension || guardando || !intervension.inicioIso || intervension.finIso}
+              className="rounded-xl border border-emerald-400 bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-900 disabled:opacity-60"
+            >
+              Fin Intervención
+            </button>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={iniciarPausaComida}
+              disabled={capturandoPausaComida || guardando || !intervension.inicioIso || Boolean(intervension.finIso) || Boolean(intervension.pausaComidaActiva?.inicioIso)}
+              className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-60"
+            >
+              Inicio Pausa Comida
+            </button>
+            <button
+              type="button"
+              onClick={finalizarPausaComida}
+              disabled={capturandoPausaComida || guardando || !intervension.pausaComidaActiva?.inicioIso}
+              className="rounded-xl border border-amber-400 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900 disabled:opacity-60"
+            >
+              Fin Pausa Comida
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-slate-700">
+            Inicio: {intervension.inicioIso ? new Date(intervension.inicioIso).toLocaleString('es-ES') : 'No iniciado'}
+          </p>
+          <p className="text-xs text-slate-700">
+            Fin: {intervension.finIso ? new Date(intervension.finIso).toLocaleString('es-ES') : 'No finalizado'}
+          </p>
+          <p className="text-xs text-slate-700">
+            Ubicación cliente: {formatearLugar(intervension.ubicacionInicio)}
+          </p>
+          {pendienteGeoIntervension && !intervension.finIso && !intervension.ubicacionInicio && (
+            <p className="text-xs font-semibold text-amber-700">
+              Sin conexión: se usa el reloj del sistema. La geolocalización se registrará al volver internet.
+            </p>
+          )}
+          <p className="text-xs text-slate-700">
+            Tiempo intervención bruto: {Number.isFinite(minutosIntervensionBrutos) ? `${minutosIntervensionBrutos} min` : 'Pendiente'}
+          </p>
+          <p className="text-xs text-slate-700">
+            Pausas comida: {intervension.pausasComida.length} ({minutosPausaComida} min)
+          </p>
+          {intervension.pausasComida.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {intervension.pausasComida.map((pausa, indice) => (
+                <li key={`${pausa.inicioIso || 'pausa'}-${indice}`} className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <span>
+                    #{indice + 1} · {new Date(pausa.inicioIso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                    {' - '}
+                    {new Date(pausa.finIso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                    {' · '}
+                    {pausa.minutos} min
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => eliminarPausaComida(indice)}
+                    disabled={guardando || Boolean(intervension.pausaComidaActiva?.inicioIso)}
+                    className="rounded-lg bg-rose-100 px-2 py-1 font-semibold text-rose-700 disabled:opacity-60"
+                  >
+                    Eliminar
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-slate-700">
+            Tiempo intervención neto: {Number.isFinite(minutosIntervensionNetos) ? `${minutosIntervensionNetos} min` : (Number.isFinite(intervension.minutosGeo) ? `${intervension.minutosGeo} min` : 'Pendiente')}
+          </p>
+          <p className="text-xs text-slate-700">
+            Pausa activa: {intervension.pausaComidaActiva?.inicioIso ? new Date(intervension.pausaComidaActiva.inicioIso).toLocaleString('es-ES') : 'No'}
           </p>
         </div>
 
         <label className="block">
           <span className="mb-1 block text-xs font-semibold text-slate-700">Cliente *</span>
           <select
-            required
             value={formulario.cliente_id}
-            onChange={(e) =>
-              setFormulario((prev) => ({ ...prev, cliente_id: e.target.value, equipo_id: '', orden_id: '' }))
-            }
+            onChange={(e) => {
+              const clienteId = e.target.value;
+              const cliente = clientes.find((item) => item.id === clienteId);
+              setFormulario((prev) => ({
+                ...prev,
+                cliente_id: clienteId,
+                cliente_nombre: cliente?.nombre || prev.cliente_nombre,
+                equipo_id: '',
+                orden_id: '',
+              }));
+            }}
             className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
             disabled={cargando}
           >
@@ -680,13 +1233,34 @@ export function ParteTrabajoView() {
               </option>
             ))}
           </select>
+          <input
+            type="text"
+            value={formulario.cliente_nombre}
+            onChange={(e) =>
+              setFormulario((prev) => ({
+                ...prev,
+                cliente_nombre: e.target.value,
+                orden_id: '',
+              }))
+            }
+            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+            placeholder="Si no existe, escribe el nombre del cliente"
+          />
         </label>
 
         <label className="block">
           <span className="mb-1 block text-xs font-semibold text-slate-700">Equipo</span>
           <select
             value={formulario.equipo_id}
-            onChange={(e) => setFormulario((prev) => ({ ...prev, equipo_id: e.target.value }))}
+            onChange={(e) => {
+              const equipoId = e.target.value;
+              const equipo = equipos.find((item) => item.id === equipoId);
+              setFormulario((prev) => ({
+                ...prev,
+                equipo_id: equipoId,
+                equipo_nombre: equipo?.nombre || prev.equipo_nombre,
+              }));
+            }}
             className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
             disabled={!formulario.cliente_id}
           >
@@ -697,6 +1271,13 @@ export function ParteTrabajoView() {
               </option>
             ))}
           </select>
+          <input
+            type="text"
+            value={formulario.equipo_nombre}
+            onChange={(e) => setFormulario((prev) => ({ ...prev, equipo_nombre: e.target.value }))}
+            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+            placeholder="Opcional: nombre del equipo para usar/crear"
+          />
         </label>
 
         <label className="block">
@@ -823,6 +1404,10 @@ export function ParteTrabajoView() {
               })}
             </ul>
           )}
+
+          <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+            Total materiales (previo): {totalMaterialesPreview.toFixed(2)} EUR
+          </p>
         </div>
 
         <label className="block">
@@ -861,6 +1446,15 @@ export function ParteTrabajoView() {
         <div className="rounded-xl border border-slate-300 bg-slate-50 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-700">Fotos de la intervención</span>
+            {fotosIntervencion.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setFotosIntervencion([])}
+                className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700"
+              >
+                Quitar todos
+              </button>
+            )}
           </div>
           <input
             type="file"
@@ -931,8 +1525,11 @@ export function ParteTrabajoView() {
           disabled={
             guardando
             || cargando
-            || !seguimientoTiempo.inicioIso
-            || !seguimientoTiempo.finIso
+            || !desplazamiento.inicioIso
+            || !desplazamiento.finIso
+            || !intervension.inicioIso
+            || !intervension.finIso
+            || !!intervension.pausaComidaActiva?.inicioIso
             || !firmaClienteDataUrl
             || !(formulario.nombre_firmante || '').trim()
           }

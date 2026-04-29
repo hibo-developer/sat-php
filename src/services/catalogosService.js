@@ -1,5 +1,13 @@
 import { obtenerClienteSupabase } from './supabaseClient';
 
+function normalizarBusquedaParaOr(valor) {
+  return (valor || '')
+    .trim()
+    // Evita que caracteres reservados rompan la expresion or(...) de PostgREST
+    .replace(/[(),]/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
 async function asegurarRegistroTecnicoParaAdminActual(supabase) {
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError) {
@@ -90,9 +98,10 @@ export async function obtenerTecnicosActivos(opciones = {}) {
     .order('nombre', { ascending: true })
     .range(desde, hasta);
 
-  if (busqueda.trim()) {
+  const busquedaNormalizada = normalizarBusquedaParaOr(busqueda);
+  if (busquedaNormalizada) {
     consulta = consulta.or(
-      `nombre.ilike.%${busqueda.trim()}%,especialidad.ilike.%${busqueda.trim()}%`
+      `nombre.ilike.%${busquedaNormalizada}%,especialidad.ilike.%${busquedaNormalizada}%`
     );
   }
 
@@ -126,9 +135,10 @@ export async function obtenerEquiposPorCliente(clienteId, opciones = {}) {
     .order('nombre', { ascending: true })
     .range(desde, hasta);
 
-  if (busqueda.trim()) {
+  const busquedaNormalizada = normalizarBusquedaParaOr(busqueda);
+  if (busquedaNormalizada) {
     consulta = consulta.or(
-      `nombre.ilike.%${busqueda.trim()}%,marca.ilike.%${busqueda.trim()}%,modelo.ilike.%${busqueda.trim()}%`
+      `nombre.ilike.%${busquedaNormalizada}%,marca.ilike.%${busquedaNormalizada}%,modelo.ilike.%${busquedaNormalizada}%`
     );
   }
 
