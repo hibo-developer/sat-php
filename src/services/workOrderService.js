@@ -312,7 +312,6 @@ export async function obtenerOrdenesTrabajo() {
       informe_pdf_url,
       fecha_inicio,
       fecha_fin,
-      fotos_intervencion_urls,
       clientes ( id, nombre ),
       equipos ( id, nombre, marca, modelo ),
       tecnicos ( id, nombre ),
@@ -866,7 +865,6 @@ export async function editarParteFinalizado(ordenId, payload) {
       tecnico_id,
       descripcion_averia,
       tareas_realizadas,
-      fotos_intervencion_urls,
       foto_url,
       firma_url,
       tiempo_empleado_minutos,
@@ -883,8 +881,6 @@ export async function editarParteFinalizado(ordenId, payload) {
       recargo_fuera_horario_pct,
       aplica_recargo_festivo,
       aplica_recargo_fuera_horario,
-      porcentaje_recargo_mano_obra,
-      coste_mano_obra_base,
       coste_mano_obra_total,
       coste_desplazamiento_total,
       coste_total,
@@ -918,10 +914,8 @@ export async function editarParteFinalizado(ordenId, payload) {
     ? String(payload.tareas_realizadas_libre || '').trim()
     : undefined;
 
-  // Fotos: partir de las actuales, eliminar las marcadas y subir nuevas
-  const fotosActuales = Array.isArray(ordenActual.fotos_intervencion_urls)
-    ? ordenActual.fotos_intervencion_urls
-    : [];
+  // Fotos: partir de las actuales (extraídas del marcador en tareas_realizadas), eliminar las marcadas y subir nuevas
+  const fotosActuales = extraerFotosIntervencionDesdeTareas(ordenActual.tareas_realizadas);
   const fotosAEliminar = Array.isArray(payload.fotos_a_eliminar)
     ? payload.fotos_a_eliminar.map((u) => String(u || '').trim()).filter(Boolean)
     : [];
@@ -972,7 +966,6 @@ export async function editarParteFinalizado(ordenId, payload) {
   const updatePayload = {
     descripcion_averia: descripcionAveria,
     tareas_realizadas: nuevasTareasRealizadas,
-    fotos_intervencion_urls: fotosFinales,
     foto_url: fotosFinales[0] || null,
   };
 
@@ -1046,8 +1039,8 @@ export async function editarParteFinalizado(ordenId, payload) {
     recargoFueraHorarioPct: Number(ordenActual.recargo_fuera_horario_pct || 0),
     aplicaRecargoFestivo: Boolean(ordenActual.aplica_recargo_festivo),
     aplicaRecargoFueraHorario: Boolean(ordenActual.aplica_recargo_fuera_horario),
-    porcentajeRecargoManoObra: Number(ordenActual.porcentaje_recargo_mano_obra || 0),
-    costeManoObraBase: Number(ordenActual.coste_mano_obra_base || 0),
+    porcentajeRecargoManoObra: 0,
+    costeManoObraBase: Number((Number(ordenActual.horas_mano_obra || 0) * Number(ordenActual.tarifa_mano_obra_hora || 0)).toFixed(2)),
     costeManoObraTotal: Number(ordenActual.coste_mano_obra_total || 0),
     tarifaDesplazamientoKm: Number(ordenActual.tarifa_desplazamiento_km || 0),
     kmDesplazamientoFacturables: Number(ordenActual.km_desplazamiento_facturables || 0),

@@ -107,16 +107,14 @@ function construirResumenDesplazamiento(desplazamiento) {
   }
 
   if (Number.isFinite(Number(desplazamiento.distanciaMetros))) {
-    const kmIda = Math.round(Number(desplazamiento.distanciaMetros)) / 1000;
-    const kmFactura = kmIda * 2;
-    lineas.push(`Distancia ida: ${kmIda.toFixed(2)} km | Factura (ida+vuelta): ${kmFactura.toFixed(2)} km`);
+    const km = Math.round(Number(desplazamiento.distanciaMetros)) / 1000;
+    lineas.push(`Distancia desplazamiento: ${km.toFixed(2)} km | Factura (ida+vuelta): ${km.toFixed(2)} km`);
   }
 
   const minutosDesplazamiento = resolverMinutosFase(desplazamiento);
   if (Number.isFinite(Number(minutosDesplazamiento))) {
-    const minutosReales = Math.round(Number(minutosDesplazamiento));
-    const minutosFacturables = minutosReales * 2;
-    lineas.push(`Tiempo desplazamiento: ${minutosReales} minutos | Factura (ida+vuelta): ${minutosFacturables} minutos`);
+    const minutos = Math.round(Number(minutosDesplazamiento));
+    lineas.push(`Tiempo desplazamiento: ${minutos} minutos | Factura (ida+vuelta): ${minutos} minutos`);
   }
 
   return lineas.join(' | ');

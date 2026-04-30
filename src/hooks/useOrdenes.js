@@ -40,9 +40,16 @@ function extraerTiempoMinutos(tareasRealizadas) {
   return Number.isFinite(minutos) ? minutos : null;
 }
 
+function extraerFotosIntervencionDesdeTareas(tareasRealizadas) {
+  const texto = String(tareasRealizadas || '');
+  const coincidencia = /Fotos intervención:\s*(.+)$/i.exec(texto);
+  if (!coincidencia || !coincidencia[1]) return [];
+  return coincidencia[1].split('|').map((u) => u.trim()).filter(Boolean);
+}
+
 function extraerKmFacturables(tareasRealizadas) {
   const texto = String(tareasRealizadas || '');
-  const coincidencia = /Distancia ida:[^|]*\|\s*Factura \(ida\+vuelta\):\s*([\d.,]+)\s*km/i.exec(texto);
+  const coincidencia = /Distancia (?:ida|desplazamiento):[^|]*\|\s*Factura \(ida\+vuelta\):\s*([\d.,]+)\s*km/i.exec(texto);
   if (!coincidencia) {
     return null;
   }
@@ -128,9 +135,7 @@ function adaptarOrdenSupabase(orden) {
     estado: estadoBackendAUi(orden.estado),
     prioridad: orden.prioridad,
     fecha: new Date(orden.fecha_inicio).toLocaleDateString('es-ES'),
-    fotosIntervencionUrls: Array.isArray(orden.fotos_intervencion_urls)
-      ? orden.fotos_intervencion_urls
-      : [],
+    fotosIntervencionUrls: extraerFotosIntervencionDesdeTareas(tareasRealizadas),
   };
 }
 

@@ -455,10 +455,9 @@ function dibujarValoracionEconomica(doc, estado, val) {
     filas.push([`Recargo mano de obra`, `+${pctRecargoMO.toFixed(2)} %`, moTotal - moBase]);
   }
   const kmFact = num(val.kmDesplazamientoFacturables) ?? 0;
-  const kmIda = kmFact > 0 ? (kmFact / 2).toFixed(2) : '0';
   filas.push([
     'Desplazamiento',
-    `${kmIda} km ida × 2 = ${kmFact} km × ${eur(val.tarifaDesplazamientoKm)}`,
+    `${kmFact} km facturables × ${eur(val.tarifaDesplazamientoKm)}/km`,
     desplTotal,
   ]);
 
@@ -697,7 +696,7 @@ function construirFilasControlTiempos({ desplazamiento, intervension, seguimient
   if (inicioDesp) filas.push(['Inicio desplazamiento', formatearFechaCorta(inicioDesp)]);
   if (finDesp) filas.push(['Fin desplazamiento', formatearFechaCorta(finDesp)]);
   if (lugarFinDesp) filas.push(['Lugar destino', lugarFinDesp]);
-  if (km != null) filas.push(['Distancia recorrida', `${km} km (ida) · ${(km * 2).toFixed(2)} km facturables`]);
+  if (km != null) filas.push(['Distancia recorrida', `${km} km`]);
 
   // Intervención (mostrar bruto y descuento de pausas)
   const pausas = Array.isArray(inter.pausasComida) ? inter.pausasComida : [];
