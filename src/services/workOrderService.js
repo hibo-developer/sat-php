@@ -40,6 +40,49 @@ function extraerNombreFirmanteDesdeTareas(tareasRealizadas) {
   return coincidencia?.[1]?.trim() || 'Cliente';
 }
 
+// Parsea los bloques "Desplazamiento Cotepa a cliente" e "Intervención en cliente"
+// embebidos en tareas_realizadas para reconstruir los timestamps reales y las pausas.
+function extraerFasesDesdeTareas(tareasRealizadas) {
+  const texto = String(tareasRealizadas || '');
+  const tokens = texto.split('|').map((t) => t.trim());
+  const cabeceras = {
+    desplazamiento: 'Desplazamiento Cotepa a cliente',
+    intervension: 'Intervención en cliente',
+    seguimiento: 'Parte registrado desde movilidad',
+  };
+  const localizar = (cabecera) => {
+    const idxIni = tokens.findIndex((t) => t === cabecera);
+    if (idxIni < 0) return [];
+    const idxFin = tokens.findIndex((t, i) => i > idxIni && Object.values(cabeceras).includes(t));
+    return tokens.slice(idxIni + 1, idxFin > 0 ? idxFin : tokens.length);
+  };
+  const parseISO = (linea, etiqueta) => {
+    const re = new RegExp(`^${etiqueta}:\\s*(.+)$`, 'i');
+    const m = re.exec(linea);
+    return m?.[1]?.trim() || null;
+  };
+  const construirFase = (cabecera) => {
+    const lineas = localizar(cabecera);
+    if (lineas.length === 0) return null;
+    const fase = { inicioIso: null, finIso: null, pausasComida: [] };
+    for (const linea of lineas) {
+      const ini = parseISO(linea, 'Inicio');
+      if (ini && !fase.inicioIso) { fase.inicioIso = ini; continue; }
+      const fin = parseISO(linea, 'Fin');
+      if (fin && !fase.finIso) { fase.finIso = fin; continue; }
+      const mPausa = /^Pausa\s+\d+:\s*(\S+)\s*->\s*(\S+)/i.exec(linea);
+      if (mPausa) {
+        fase.pausasComida.push({ inicioIso: mPausa[1], finIso: mPausa[2] });
+      }
+    }
+    return fase.inicioIso ? fase : null;
+  };
+  return {
+    desplazamiento: construirFase(cabeceras.desplazamiento),
+    intervension: construirFase(cabeceras.intervension),
+  };
+}
+
 function materialesOrdenATexto(materialesOrden) {
   const materiales = Array.isArray(materialesOrden) ? materialesOrden : [];
   return materiales
@@ -744,12 +787,19 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
   }
 
   const materialesTexto = materialesOrdenATexto(ordenActual.materiales_orden);
+  const fasesParseadas = extraerFasesDesdeTareas(ordenActual.tareas_realizadas);
+  const inicioInterv = fasesParseadas.intervension?.inicioIso || ordenActual.fecha_inicio;
   const desplazamiento = {
-    inicioIso: ordenActual.fecha_inicio,
-    finIso: ordenActual.fecha_fin,
+    inicioIso: fasesParseadas.desplazamiento?.inicioIso || ordenActual.fecha_inicio,
+    finIso: fasesParseadas.desplazamiento?.finIso || inicioInterv,
     distanciaMetros: Number.isFinite(Number(kmDesplazamientoFacturables))
       ? Math.round(kmDesplazamientoFacturables * 1000)
       : null,
+  };
+  const intervensionRecuperada = {
+    inicioIso: inicioInterv,
+    finIso: fasesParseadas.intervension?.finIso || ordenActual.fecha_fin,
+    pausasComida: fasesParseadas.intervension?.pausasComida || [],
   };
 
   const informe = await generarYSubirInformeParte({
@@ -762,10 +812,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
       materialesTexto,
     },
     desplazamiento,
-    intervension: {
-      inicioIso: ordenActual.fecha_inicio,
-      finIso: ordenActual.fecha_fin,
-    },
+    intervension: intervensionRecuperada,
     clienteNombre: ordenActual.clientes?.nombre || 'Cliente no identificado',
     equipoNombre: ordenActual.equipos?.nombre || 'Sin equipo',
     tecnicoNombre: ordenActual.tecnicos?.nombre || 'Tecnico no identificado',
@@ -1021,12 +1068,21 @@ export async function editarParteFinalizado(ordenId, payload) {
     .filter(Boolean)
     .join('\n');
 
+  const fasesParseadas = extraerFasesDesdeTareas(ordenActual.tareas_realizadas);
+  const inicioInterv = fasesParseadas.intervension?.inicioIso || ordenActual.fecha_inicio;
+
   const desplazamiento = {
-    inicioIso: ordenActual.fecha_inicio,
-    finIso: ordenActual.fecha_fin,
+    inicioIso: fasesParseadas.desplazamiento?.inicioIso || ordenActual.fecha_inicio,
+    finIso: fasesParseadas.desplazamiento?.finIso || inicioInterv,
     distanciaMetros: Number.isFinite(Number(ordenActual.km_desplazamiento_facturables))
       ? Math.round(Number(ordenActual.km_desplazamiento_facturables) * 1000)
       : null,
+  };
+
+  const intervensionRecuperada = {
+    inicioIso: inicioInterv,
+    finIso: fasesParseadas.intervension?.finIso || ordenActual.fecha_fin,
+    pausasComida: fasesParseadas.intervension?.pausasComida || [],
   };
 
   const valoracionEconomica = {
@@ -1058,10 +1114,7 @@ export async function editarParteFinalizado(ordenId, payload) {
       materialesTexto,
     },
     desplazamiento,
-    intervension: {
-      inicioIso: ordenActual.fecha_inicio,
-      finIso: ordenActual.fecha_fin,
-    },
+    intervension: intervensionRecuperada,
     clienteNombre: ordenActual.clientes?.nombre || 'Cliente no identificado',
     equipoNombre: ordenActual.equipos?.nombre || 'Sin equipo',
     tecnicoNombre: ordenActual.tecnicos?.nombre || 'Tecnico no identificado',
