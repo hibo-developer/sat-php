@@ -830,31 +830,22 @@ function TarjetaOrden({
         <p>
           <span className="font-semibold text-slate-900">Técnico:</span> {orden.tecnico || 'Sin técnico asignado'}
         </p>
-        <p>
-          <span className="font-semibold text-slate-900">Avería:</span> {orden.descripcion}
-        </p>
+        {orden.estado !== 'Finalizado' && (
+          <p>
+            <span className="font-semibold text-slate-900">Avería:</span> {orden.descripcion}
+          </p>
+        )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between rounded-xl bg-marca-50 px-3 py-2 text-xs font-semibold text-marca-700">
-        <span>Prioridad: {orden.prioridad}</span>
-        <span>{orden.fecha}</span>
-      </div>
+      {orden.estado !== 'Finalizado' && (
+        <div className="mt-4 flex items-center justify-between rounded-xl bg-marca-50 px-3 py-2 text-xs font-semibold text-marca-700">
+          <span>Prioridad: {orden.prioridad}</span>
+          <span>{orden.fecha}</span>
+        </div>
+      )}
 
       {orden.estado === 'Finalizado' && (
         <div className="mt-3 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-          {fechaRegeneracionInforme && (
-            <p className="text-xs font-semibold text-emerald-800">
-              Última regeneración: {fechaRegeneracionInforme}
-            </p>
-          )}
-          <div className="space-y-1 rounded-lg border border-emerald-200 bg-white p-2 text-xs text-slate-700">
-            <p><span className="font-semibold">Materiales:</span> {Number(orden.costeMaterialesEditable || 0).toFixed(2)} €</p>
-            <p><span className="font-semibold">Mano de obra:</span> {Number(orden.costeManoObraTotal || 0).toFixed(2)} €</p>
-            <p><span className="font-semibold">Precio km:</span> {Number(orden.tarifaDesplazamientoKm || 0).toFixed(2)} €/km</p>
-            <p><span className="font-semibold">Desplazamiento:</span> {Number(orden.costeDesplazamientoTotal || 0).toFixed(2)} €</p>
-            <p className="font-bold text-emerald-800">Total: {Number(orden.costeTotal || orden.costeMateriales || 0).toFixed(2)} €</p>
-          </div>
-
           {orden.informePdfUrl && (
             <a
               href={orden.informePdfUrl}

@@ -82,36 +82,36 @@ function adaptarOrdenSupabase(orden) {
     fotoUrl: orden.foto_url || '',
     materiales,
     costeMateriales,
-    costeMaterialesEditable: Number.isFinite(Number(orden.coste_materiales_editable))
+    costeMaterialesEditable: orden.coste_materiales_editable != null && Number.isFinite(Number(orden.coste_materiales_editable))
       ? Number(orden.coste_materiales_editable)
       : costeMateriales,
-    tarifaManoObraHora: Number.isFinite(Number(orden.tarifa_mano_obra_hora))
+    tarifaManoObraHora: orden.tarifa_mano_obra_hora != null && Number.isFinite(Number(orden.tarifa_mano_obra_hora))
       ? Number(orden.tarifa_mano_obra_hora)
-      : 0,
-    horasManoObra: Number.isFinite(Number(orden.horas_mano_obra))
+      : 50,
+    horasManoObra: orden.horas_mano_obra != null && Number.isFinite(Number(orden.horas_mano_obra))
       ? Number(orden.horas_mano_obra)
       : horasManoObraCalculadas,
-    tarifaDesplazamientoKm: Number.isFinite(Number(orden.tarifa_desplazamiento_km))
+    tarifaDesplazamientoKm: orden.tarifa_desplazamiento_km != null && Number.isFinite(Number(orden.tarifa_desplazamiento_km))
       ? Number(orden.tarifa_desplazamiento_km)
-      : 0,
-    kmDesplazamientoFacturables: Number.isFinite(Number(orden.km_desplazamiento_facturables))
+      : 0.5,
+    kmDesplazamientoFacturables: orden.km_desplazamiento_facturables != null && Number.isFinite(Number(orden.km_desplazamiento_facturables))
       ? Number(orden.km_desplazamiento_facturables)
       : (kmFacturablesCalculados ?? 0),
-    recargoFestivoPct: Number.isFinite(Number(orden.recargo_festivo_pct))
+    recargoFestivoPct: orden.recargo_festivo_pct != null && Number.isFinite(Number(orden.recargo_festivo_pct))
       ? Number(orden.recargo_festivo_pct)
-      : 0,
-    recargoFueraHorarioPct: Number.isFinite(Number(orden.recargo_fuera_horario_pct))
+      : 25,
+    recargoFueraHorarioPct: orden.recargo_fuera_horario_pct != null && Number.isFinite(Number(orden.recargo_fuera_horario_pct))
       ? Number(orden.recargo_fuera_horario_pct)
-      : 0,
+      : 20,
     aplicaRecargoFestivo: orden.aplica_recargo_festivo ?? null,
     aplicaRecargoFueraHorario: orden.aplica_recargo_fuera_horario ?? null,
-    costeManoObraTotal: Number.isFinite(Number(orden.coste_mano_obra_total))
+    costeManoObraTotal: orden.coste_mano_obra_total != null && Number.isFinite(Number(orden.coste_mano_obra_total))
       ? Number(orden.coste_mano_obra_total)
       : 0,
-    costeDesplazamientoTotal: Number.isFinite(Number(orden.coste_desplazamiento_total))
+    costeDesplazamientoTotal: orden.coste_desplazamiento_total != null && Number.isFinite(Number(orden.coste_desplazamiento_total))
       ? Number(orden.coste_desplazamiento_total)
       : 0,
-    costeTotal: Number.isFinite(Number(orden.coste_total))
+    costeTotal: orden.coste_total != null && Number.isFinite(Number(orden.coste_total))
       ? Number(orden.coste_total)
       : costeMateriales,
     tiempoEmpleadoMinutos,

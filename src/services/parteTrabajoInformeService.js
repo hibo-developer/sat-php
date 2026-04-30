@@ -2,91 +2,93 @@ import { jsPDF } from 'jspdf';
 import logoCotepaUrl from '../assets/cotepa.jpg';
 import { obtenerClienteSupabase } from './supabaseClient';
 
-let logoEmpresaDataUrlCache = null;
-let logoEmpresaPromise = null;
-let logoCabeceraActual = null;
-const DIRECCION_FISCAL_COTEPA_INICIO = 'COTEPA S.L. - C/ Sequia de Rascanya 7, Pol. Ind. Paiporta, 46200 Valencia';
-let informeMetaActual = {
-  referenciaInforme: '',
-  fechaInforme: '',
+// =====================================================================
+// Constantes de diseño - paleta corporativa COTEPA
+// =====================================================================
+
+const COLOR = {
+  marca: [11, 30, 59],          // Azul marino corporativo
+  marcaSuave: [30, 58, 95],
+  acento: [185, 28, 28],        // Rojo COTEPA
+  acentoSuave: [254, 226, 226],
+  texto: [15, 23, 42],
+  textoSuave: [71, 85, 105],
+  textoMute: [120, 130, 145],
+  borde: [226, 232, 240],
+  bordeSuave: [241, 245, 249],
+  fondoZebra: [248, 250, 252],
+  fondoSuave: [249, 250, 252],
+  blanco: [255, 255, 255],
+  okFondo: [220, 252, 231],
+  okTexto: [21, 128, 61],
 };
 
-export function obtenerUrlPublicaInformeParte(clienteId, parteId) {
-  const cliente = valorTexto(clienteId, '').trim();
-  const parte = valorTexto(parteId, '').trim();
+const PAGINA = {
+  ancho: 210,
+  alto: 297,
+  margenX: 14,
+  margenSup: 14,
+  margenInf: 16,
+};
+PAGINA.contenido = PAGINA.ancho - PAGINA.margenX * 2;
 
-  if (!cliente || !parte) {
-    return '';
-  }
+const EMPRESA = {
+  nombre: 'COTEPA S.L.',
+  direccion: 'C/ Sequía de Rascanya, 7 · Pol. Ind. · 46200 Paiporta (Valencia)',
+  cif: 'B46220042',
+  email: 'sat@cotepa.com',
+  web: 'www.cotepa.com',
+};
 
-  const supabase = obtenerClienteSupabase();
-  const ruta = `${cliente}/informe-parte-${parte}.pdf`;
-  const { data } = supabase.storage.from('informes-partes').getPublicUrl(ruta);
+let logoEmpresaCache = null;
+let logoEmpresaPromise = null;
 
-  return data?.publicUrl || '';
+let metaInforme = {
+  referencia: '',
+  fechaEmision: '',
+};
+
+// =====================================================================
+// Utilidades de formato
+// =====================================================================
+
+function txt(valor, fallback = '—') {
+  const s = typeof valor === 'string' ? valor.trim() : (valor != null ? String(valor).trim() : '');
+  return s || fallback;
 }
 
-function valorTexto(valor, fallback = 'N/D') {
-  const texto = typeof valor === 'string' ? valor.trim() : '';
-  return texto || fallback;
+function num(valor) {
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : null;
 }
 
-function formatearFecha(valor) {
-  if (!valor) {
-    return 'N/D';
-  }
-
-  const fecha = new Date(valor);
-  if (!Number.isFinite(fecha.getTime())) {
-    return String(valor);
-  }
-
-  return fecha.toLocaleString('es-ES');
+function eur(valor) {
+  const n = num(valor);
+  return n != null ? `${n.toFixed(2)} €` : '—';
 }
 
-  function resolverMinutosFase(fase) {
-    const minutosGeo = Number(fase?.minutosGeo);
-    if (Number.isFinite(minutosGeo) && minutosGeo > 0) {
-      return Math.round(minutosGeo);
-    }
-
-    if (!fase?.inicioIso || !fase?.finIso) {
-      return null;
-    }
-
-    const inicioMs = new Date(fase.inicioIso).getTime();
-    const finMs = new Date(fase.finIso).getTime();
-    const diff = finMs - inicioMs;
-    if (!Number.isFinite(diff) || diff <= 0) {
-      return 1;
-    }
-
-    return Math.max(1, Math.ceil(diff / 60000));
-  }
-
-function formatearFechaOficial(valor) {
-  if (!valor) {
-    return 'N/D';
-  }
-
-  const fecha = new Date(valor);
-  if (!Number.isFinite(fecha.getTime())) {
-    return String(valor);
-  }
-
+function formatearFechaCorta(valor) {
+  if (!valor) return '—';
+  const f = new Date(valor);
+  if (!Number.isFinite(f.getTime())) return String(valor);
   return new Intl.DateTimeFormat('es-ES', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(fecha);
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(f);
+}
+
+function formatearFechaSolo(valor) {
+  if (!valor) return '—';
+  const f = new Date(valor);
+  if (!Number.isFinite(f.getTime())) return String(valor);
+  return new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit', month: 'long', year: 'numeric',
+  }).format(f);
 }
 
 function crearReferenciaInforme(fechaIso, secuencial) {
-  const fecha = new Date(fechaIso);
-  const ahora = Number.isFinite(fecha.getTime()) ? fecha : new Date();
+  const f = new Date(fechaIso);
+  const ahora = Number.isFinite(f.getTime()) ? f : new Date();
   const dd = String(ahora.getDate()).padStart(2, '0');
   const mm = String(ahora.getMonth() + 1).padStart(2, '0');
   const yyyy = ahora.getFullYear();
@@ -94,671 +96,46 @@ function crearReferenciaInforme(fechaIso, secuencial) {
   return `SAT-${dd}-${mm}-${yyyy}/${seq}`;
 }
 
-function materialesDesdeTexto(texto) {
-  if (!texto || !texto.trim()) {
-    return [];
-  }
+function resolverMinutosFase(fase) {
+  const minutosGeo = num(fase?.minutosGeo);
+  if (minutosGeo != null && minutosGeo > 0) return Math.round(minutosGeo);
+  if (!fase?.inicioIso || !fase?.finIso) return null;
+  const ms = new Date(fase.finIso).getTime() - new Date(fase.inicioIso).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return 1;
+  return Math.max(1, Math.ceil(ms / 60000));
+}
 
+function calcularHorasIntervencionMinimoUno(intervension) {
+  const m = resolverMinutosFase(intervension);
+  if (!m || m <= 0) return 1;
+  return Math.max(1, Number((m / 60).toFixed(2)));
+}
+
+function materialesDesdeTexto(texto) {
+  if (!texto || !texto.trim()) return [];
   return texto
     .split('\n')
-    .map((linea) => linea.trim())
+    .map((l) => l.trim())
     .filter(Boolean)
-    .map((linea) => {
-      const [nombre, cantidad, precio] = linea.split(';').map((v) => (v || '').trim());
-      const cantidadNum = Number.parseInt(cantidad, 10);
-      const precioUnitarioNum = Number.parseFloat((precio || '').replace(',', '.'));
-      const importeNum = Number.isFinite(cantidadNum) && Number.isFinite(precioUnitarioNum)
-        ? (cantidadNum * precioUnitarioNum)
-        : null;
-
+    .map((l) => {
+      const [nombre, cantidad, precio] = l.split(';').map((v) => (v || '').trim());
+      const c = Number.parseInt(cantidad, 10);
+      const p = Number.parseFloat((precio || '').replace(',', '.'));
+      const importe = Number.isFinite(c) && Number.isFinite(p) ? c * p : null;
       return {
         nombre: nombre || 'Material',
-        cantidad: cantidad || '1',
-        importeNum,
-        precio: Number.isFinite(importeNum) ? `${importeNum.toFixed(2)} EUR` : 'N/D',
+        cantidad: Number.isFinite(c) ? c : 1,
+        precioUnitario: Number.isFinite(p) ? p : null,
+        importe,
       };
     });
 }
 
-const PDF_ESTILO = {
-  colorPrimario: [15, 23, 42],
-  colorSecundario: [203, 213, 225],
-  colorAcento: [185, 28, 28],
-  colorNaranja: [204, 72, 10],
-  colorFondoPagina: [241, 245, 249],
-  colorFondoCaja: [255, 255, 255],
-  colorFranjaSuave: [248, 241, 242],
-  colorTexto: [30, 41, 59],
-  margenX: 15,
-  anchoContenido: 180,
-};
-
-function iniciarPagina(doc, estado) {
-  doc.setFillColor(...PDF_ESTILO.colorFondoPagina);
-  doc.rect(8.3, 8.3, 193.4, 280.4, 'F');
-  doc.setFillColor(...PDF_ESTILO.colorFranjaSuave);
-  doc.rect(8.3, 8.3, 193.4, 4, 'F');
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.setLineWidth(0.4);
-  doc.rect(8, 8, 194, 281);
-  estado.y = 18;
-}
-
-function reservarEspacio(doc, estado, altoNecesario, withHeader = true) {
-  if (estado.y + altoNecesario <= 284) {
-    return;
-  }
-
-  doc.addPage();
-  iniciarPagina(doc, estado);
-  if (withHeader) {
-    dibujarCabeceraSimple(doc, estado);
-  }
-}
-
-function dibujarCabeceraSimple(doc, estado) {
-  doc.setFillColor(...PDF_ESTILO.colorFondoCaja);
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, 16, 2.5, 2.5, 'FD');
-
-  const logoX = PDF_ESTILO.margenX + 3;
-  const logoY = estado.y + 2;
-  doc.setFillColor(255, 255, 255);
-  doc.roundedRect(logoX, logoY, 15, 12, 1.5, 1.5, 'F');
-  if (logoCabeceraActual) {
-    try {
-      doc.addImage(logoCabeceraActual, 'JPEG', logoX + 0.8, logoY + 0.8, 13.4, 10.4);
-    } catch {
-      // Si falla el logo, mantenemos la cabecera funcional.
-    }
-  }
-
-  doc.setTextColor(...PDF_ESTILO.colorPrimario);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11.5);
-  doc.text('INFORME SAT - CONTINUACION', PDF_ESTILO.margenX + 20, estado.y + 7);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text(`Ref. ${valorTexto(informeMetaActual.referenciaInforme)}`, PDF_ESTILO.margenX + 20, estado.y + 12);
-  doc.text(`Fecha ${valorTexto(informeMetaActual.fechaInforme)}`, PDF_ESTILO.margenX + 90, estado.y + 12);
-
-  doc.setTextColor(...PDF_ESTILO.colorTexto);
-  estado.y += 23;
-}
-
-function dibujarCabeceraPrincipal(doc, estado, referenciaInforme, logoEmpresaDataUrl) {
-  const alturaCabecera = 36;
-  doc.setFillColor(...PDF_ESTILO.colorPrimario);
-  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, alturaCabecera, 4, 4, 'F');
-
-  // Logo cuadrado en la izquierda
-  const logoX = PDF_ESTILO.margenX + 4;
-  const logoY = estado.y + 7;
-  doc.setFillColor(255, 255, 255);
-  doc.roundedRect(logoX, logoY, 22, 22, 2, 2, 'F');
-  if (logoEmpresaDataUrl) {
-    try {
-      doc.addImage(logoEmpresaDataUrl, 'JPEG', logoX + 1, logoY + 1, 20, 20);
-    } catch {
-      // Si falla la carga del logo, mantenemos la caja en blanco para no romper el PDF.
-    }
-  }
-
-  // Badges en la derecha
-  const badgeX = PDF_ESTILO.margenX + 141;
-  const badgeAncho = 36;
-  const badgeCentroX = badgeX + badgeAncho / 2;
-
-  doc.setFillColor(...PDF_ESTILO.colorNaranja);
-  doc.roundedRect(badgeX, estado.y + 3, badgeAncho, 15, 2, 2, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text('PRIORIDAD', badgeCentroX, estado.y + 8, { align: 'center' });
-  doc.setFontSize(11);
-  doc.text(informeMetaActual.prioridad || 'N/D', badgeCentroX, estado.y + 15, { align: 'center' });
-
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(badgeX, estado.y + 20, badgeAncho, 13, 2, 2, 'F');
-  doc.setTextColor(...PDF_ESTILO.colorPrimario);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text('TIEMPO', badgeCentroX, estado.y + 25, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text(`${informeMetaActual.tiempoMin || 'N/D'} min`, badgeCentroX, estado.y + 31, { align: 'center' });
-
-  // Titulo centrado en el espacio entre logo y badges
-  const textoCentroX = (PDF_ESTILO.margenX + 30 + badgeX) / 2;
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text('INFORME DE PARTE DE TRABAJO', textoCentroX, estado.y + 12, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text('SAT COTEPA - Servicio Tecnico Oficial', textoCentroX, estado.y + 20, { align: 'center' });
-  doc.setFontSize(9);
-  doc.text(`Ref.: ${valorTexto(referenciaInforme)}`, textoCentroX, estado.y + 27, { align: 'center' });
-
-  doc.setTextColor(...PDF_ESTILO.colorTexto);
-  estado.y += alturaCabecera + 5;
-}
-
-function dibujarTarjetaResumen(doc, x, y, ancho, alto, titulo, valor) {
-  doc.setFillColor(...PDF_ESTILO.colorFondoCaja);
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.roundedRect(x, y, ancho, alto, 2.5, 2.5, 'FD');
-
-  doc.setFillColor(...PDF_ESTILO.colorFranjaSuave);
-  doc.roundedRect(x + 1, y + 1, ancho - 2, 7, 1.5, 1.5, 'F');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.5);
-  doc.setTextColor(...PDF_ESTILO.colorAcento);
-  doc.text(titulo.toUpperCase(), x + 2.5, y + 6);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.setTextColor(...PDF_ESTILO.colorTexto);
-  const lineas = doc.splitTextToSize(valorTexto(valor), ancho - 5);
-  doc.text(lineas.slice(0, 2), x + 2.5, y + 13);
-}
-
-function dibujarResumenTarjetas(doc, estado, datos) {
-  const cols = 3;
-  const gap = 4;
-  const anchoTarjeta = (PDF_ESTILO.anchoContenido - (gap * (cols - 1))) / cols;
-  const altoTarjeta = 20;
-  const filas = Math.ceil(datos.length / cols);
-  const altoTotal = filas * altoTarjeta + ((filas - 1) * 2) + 2;
-  reservarEspacio(doc, estado, altoTotal);
-
-  for (let i = 0; i < datos.length; i += 1) {
-    const col = i % cols;
-    const fila = Math.floor(i / cols);
-    const x = PDF_ESTILO.margenX + (col * (anchoTarjeta + gap));
-    const y = estado.y + (fila * (altoTarjeta + 2));
-    const [titulo, valor] = datos[i];
-    dibujarTarjetaResumen(doc, x, y, anchoTarjeta, altoTarjeta, titulo, valor);
-  }
-
-  estado.y += altoTotal + 3;
-}
-
-function dibujarBloqueDatos(doc, estado, datos) {
-  const xEtiqueta = PDF_ESTILO.margenX + 4;
-  const xValor = PDF_ESTILO.margenX + 70;
-  const anchoValor = PDF_ESTILO.anchoContenido - (xValor - PDF_ESTILO.margenX) - 4;
-
-  const filas = datos.map(([etiqueta, valor]) => {
-    const lineasValor = doc.splitTextToSize(valorTexto(valor), anchoValor);
-    const altoFila = Math.max(7, lineasValor.length * 4.2 + 2);
-    return { etiqueta, lineasValor, altoFila };
-  });
-
-  const alto = filas.reduce((ac, fila) => ac + fila.altoFila, 0) + 6;
-  reservarEspacio(doc, estado, alto);
-
-  doc.setFillColor(...PDF_ESTILO.colorFondoCaja);
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, alto, 2, 2, 'FD');
-
-  let y = estado.y + 7;
-  filas.forEach(({ etiqueta, lineasValor, altoFila }) => {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(...PDF_ESTILO.colorPrimario);
-    doc.text(`${etiqueta}:`, xEtiqueta, y);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...PDF_ESTILO.colorTexto);
-    doc.text(lineasValor, xValor, y);
-    y += altoFila;
-  });
-
-  estado.y += alto + 5;
-}
-
-function dibujarBloqueDatosDosColumnas(doc, estado, datos) {
-  const columnas = 2;
-  const padding = 4;
-  const separacionColumnas = 6;
-  const anchoColumna = (PDF_ESTILO.anchoContenido - (padding * 2) - separacionColumnas) / columnas;
-
-  const datosColumna1 = [];
-  const datosColumna2 = [];
-  datos.forEach((item, indice) => {
-    if (indice % 2 === 0) {
-      datosColumna1.push(item);
-    } else {
-      datosColumna2.push(item);
-    }
-  });
-
-  function medirAlturaColumna(items) {
-    return items.reduce((altoAcumulado, [etiqueta, valor]) => {
-      const textoLinea = `${etiqueta}: ${valorTexto(valor)}`;
-      const lineas = doc.splitTextToSize(textoLinea, anchoColumna - 2);
-      return altoAcumulado + (lineas.length * 4.2) + 2;
-    }, 0);
-  }
-
-  const altoCol1 = medirAlturaColumna(datosColumna1);
-  const altoCol2 = medirAlturaColumna(datosColumna2);
-  const alto = Math.max(altoCol1, altoCol2) + 6;
-
-  reservarEspacio(doc, estado, alto);
-
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, alto, 2, 2, 'FD');
-
-  const xCol1 = PDF_ESTILO.margenX + padding;
-  const xCol2 = xCol1 + anchoColumna + separacionColumnas;
-  let yCol1 = estado.y + 6;
-  let yCol2 = estado.y + 6;
-
-  doc.setFontSize(9);
-  doc.setTextColor(...PDF_ESTILO.colorTexto);
-
-  datosColumna1.forEach(([etiqueta, valor]) => {
-    const textoLinea = `${etiqueta}: ${valorTexto(valor)}`;
-    const lineas = doc.splitTextToSize(textoLinea, anchoColumna - 2);
-    doc.setFont('helvetica', 'bold');
-    doc.text(lineas[0] || '', xCol1, yCol1);
-    if (lineas.length > 1) {
-      doc.setFont('helvetica', 'normal');
-      doc.text(lineas.slice(1), xCol1, yCol1 + 4.2);
-    }
-    yCol1 += (lineas.length * 4.2) + 2;
-  });
-
-  datosColumna2.forEach(([etiqueta, valor]) => {
-    const textoLinea = `${etiqueta}: ${valorTexto(valor)}`;
-    const lineas = doc.splitTextToSize(textoLinea, anchoColumna - 2);
-    doc.setFont('helvetica', 'bold');
-    doc.text(lineas[0] || '', xCol2, yCol2);
-    if (lineas.length > 1) {
-      doc.setFont('helvetica', 'normal');
-      doc.text(lineas.slice(1), xCol2, yCol2 + 4.2);
-    }
-    yCol2 += (lineas.length * 4.2) + 2;
-  });
-
-  estado.y += alto + 5;
-}
-
-function dibujarTituloSeccion(doc, estado, titulo) {
-  reservarEspacio(doc, estado, 12);
-  doc.setFillColor(...PDF_ESTILO.colorAcento);
-  doc.roundedRect(PDF_ESTILO.margenX, estado.y, 3, 8, 1, 1, 'F');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.setTextColor(...PDF_ESTILO.colorPrimario);
-  doc.text(titulo, PDF_ESTILO.margenX + 7, estado.y + 6);
-
-  doc.setTextColor(...PDF_ESTILO.colorTexto);
-  estado.y += 9;
-}
-
-function dibujarParrafo(doc, estado, texto) {
-  const contenido = valorTexto(texto);
-  const lineas = doc.splitTextToSize(contenido, PDF_ESTILO.anchoContenido - 8);
-  const alto = lineas.length * 5 + 8;
-  reservarEspacio(doc, estado, alto);
-
-  doc.setFillColor(...PDF_ESTILO.colorFondoCaja);
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, alto, 2, 2, 'FD');
-
-  doc.setFillColor(...PDF_ESTILO.colorFranjaSuave);
-  doc.roundedRect(PDF_ESTILO.margenX + 1, estado.y + 1, PDF_ESTILO.anchoContenido - 2, 4, 1.5, 1.5, 'F');
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(...PDF_ESTILO.colorTexto);
-  doc.text(lineas, PDF_ESTILO.margenX + 4, estado.y + 6);
-  estado.y += alto + 3;
-}
-
-function dibujarTablaMateriales(doc, estado, materiales) {
-  if (!materiales.length) {
-    dibujarParrafo(doc, estado, 'Sin materiales declarados.');
-    return;
-  }
-
-  const altoCabecera = 8;
-  const altoFila = 7;
-  const altoTotales = 8;
-  const altoTabla = altoCabecera + materiales.length * altoFila + altoTotales;
-  reservarEspacio(doc, estado, altoTabla + 6);
-
-  const x = PDF_ESTILO.margenX;
-  const colNombre = 110;
-  const colCantidad = 30;
-  const colPrecio = 40;
-
-  doc.setFillColor(...PDF_ESTILO.colorPrimario);
-  doc.rect(x, estado.y, PDF_ESTILO.anchoContenido, altoCabecera, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('Material', x + 3, estado.y + 5.5);
-  doc.text('Cantidad', x + colNombre + 3, estado.y + 5.5);
-  doc.text('Importe', x + colNombre + colCantidad + 3, estado.y + 5.5);
-
-  let y = estado.y + altoCabecera;
-  materiales.forEach((material, indice) => {
-    doc.setFillColor(indice % 2 === 0 ? 248 : 241, indice % 2 === 0 ? 250 : 245, indice % 2 === 0 ? 252 : 249);
-    doc.rect(x, y, PDF_ESTILO.anchoContenido, altoFila, 'F');
-    doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-    doc.rect(x, y, PDF_ESTILO.anchoContenido, altoFila);
-
-    doc.setTextColor(...PDF_ESTILO.colorTexto);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-
-    const nombre = doc.splitTextToSize(material.nombre, colNombre - 5)[0] || 'Material';
-    doc.text(nombre, x + 3, y + 4.8);
-    doc.text(valorTexto(material.cantidad), x + colNombre + 3, y + 4.8);
-    doc.text(valorTexto(material.precio), x + colNombre + colCantidad + 3, y + 4.8);
-
-    y += altoFila;
-  });
-
-  const totalMateriales = materiales.reduce((acumulado, material) => {
-    return acumulado + (Number.isFinite(Number(material.importeNum)) ? Number(material.importeNum) : 0);
-  }, 0);
-
-  doc.setFillColor(226, 232, 240);
-  doc.rect(x, y, PDF_ESTILO.anchoContenido, altoTotales, 'F');
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.rect(x, y, PDF_ESTILO.anchoContenido, altoTotales);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(...PDF_ESTILO.colorPrimario);
-  doc.text('Total materiales', x + 3, y + 5.5);
-  doc.text(`${totalMateriales.toFixed(2)} EUR`, x + colNombre + colCantidad + 3, y + 5.5);
-
-  estado.y += altoTabla + 4;
-}
-
-async function dibujarFotos(doc, estado, fotosIntervencionUrls) {
-  if (!Array.isArray(fotosIntervencionUrls) || fotosIntervencionUrls.length === 0) {
-    dibujarParrafo(doc, estado, 'Sin fotos adjuntas.');
-    return;
-  }
-
-  const anchoCaja = 87;
-  const altoCaja = 62;
-  const maxAnchoImg = 79;
-  const maxAltoImg = 44;
-  const columnas = 2;
-
-  for (let i = 0; i < fotosIntervencionUrls.length; i += columnas) {
-    reservarEspacio(doc, estado, altoCaja + 4);
-
-    for (let col = 0; col < columnas; col += 1) {
-      const indice = i + col;
-      if (!fotosIntervencionUrls[indice]) continue;
-
-      const x = PDF_ESTILO.margenX + col * (anchoCaja + 6);
-      const y = estado.y;
-
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-      doc.roundedRect(x, y, anchoCaja, altoCaja, 2, 2, 'FD');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(...PDF_ESTILO.colorPrimario);
-      doc.text(`Foto ${indice + 1}`, x + 3, y + 6);
-
-      const dataUrl = await urlADataUrl(fotosIntervencionUrls[indice]);
-      if (!dataUrl) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(100, 116, 139);
-        doc.text('No se pudo cargar la imagen.', x + 3, y + 15);
-        continue;
-      }
-
-      // Ajustar imagen al marco sin deformar.
-      await new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          const ratio = img.naturalWidth / img.naturalHeight;
-          let ancho = maxAnchoImg;
-          let alto = ancho / ratio;
-
-          if (alto > maxAltoImg) {
-            alto = maxAltoImg;
-            ancho = alto * ratio;
-          }
-
-          const xImg = x + (anchoCaja - ancho) / 2;
-          const yImg = y + 11 + (maxAltoImg - alto) / 2;
-          doc.addImage(dataUrl, 'JPEG', xImg, yImg, ancho, alto);
-          resolve();
-        };
-        img.onerror = () => resolve();
-        img.src = dataUrl;
-      });
-    }
-
-    estado.y += altoCaja + 4;
-  }
-}
-
-async function dibujarFirma(doc, estado, firmaUrl, nombreFirmante) {
-  reservarEspacio(doc, estado, 58);
-  doc.setFillColor(...PDF_ESTILO.colorFondoCaja);
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, 54, 2, 2, 'FD');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(...PDF_ESTILO.colorPrimario);
-  doc.text('Firma del cliente', PDF_ESTILO.margenX + 4, estado.y + 8);
-
-  if (firmaUrl) {
-    const firmaDataUrl = await urlADataUrl(firmaUrl);
-    if (firmaDataUrl) {
-      doc.addImage(firmaDataUrl, 'PNG', PDF_ESTILO.margenX + 4, estado.y + 11, 85, 36);
-    } else {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(100, 116, 139);
-      doc.text('No se pudo cargar la firma.', PDF_ESTILO.margenX + 4, estado.y + 16);
-    }
-  } else {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Sin firma registrada.', PDF_ESTILO.margenX + 4, estado.y + 16);
-  }
-
-  doc.setDrawColor(148, 163, 184);
-  doc.line(PDF_ESTILO.margenX + 110, estado.y + 41, PDF_ESTILO.margenX + 175, estado.y + 41);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...PDF_ESTILO.colorPrimario);
-  doc.text(valorTexto(nombreFirmante), PDF_ESTILO.margenX + 111, estado.y + 38.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139);
-  doc.text(`Fecha del informe: ${valorTexto(informeMetaActual.fechaInforme)}`, PDF_ESTILO.margenX + 111, estado.y + 46);
-
-  estado.y += 58;
-}
-
-function dibujarBloqueLegal(doc, estado) {
-  reservarEspacio(doc, estado, 58);
-
-  doc.setFillColor(...PDF_ESTILO.colorFondoCaja);
-  doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-  doc.roundedRect(PDF_ESTILO.margenX, estado.y, PDF_ESTILO.anchoContenido, 54, 2, 2, 'FD');
-
-  doc.setFillColor(...PDF_ESTILO.colorFranjaSuave);
-  doc.roundedRect(PDF_ESTILO.margenX + 1, estado.y + 1, PDF_ESTILO.anchoContenido - 2, 7, 1.5, 1.5, 'F');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(...PDF_ESTILO.colorAcento);
-  doc.text('DATOS LEGALES Y DE EMISION', PDF_ESTILO.margenX + 2.5, estado.y + 6);
-
-  const xIzq = PDF_ESTILO.margenX + 2.5;
-  const xDer = PDF_ESTILO.margenX + 112;
-  const yBase = estado.y + 12;
-
-  doc.setTextColor(...PDF_ESTILO.colorTexto);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.5);
-  doc.text('COTEPA', xIzq, yBase);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.7);
-  doc.text([
-    'COTEPA SL (Sociedad Limitada)',
-    'CIF/NIF: B46220042',
-    'Direccion fiscal: C/ Sequia de Rascanya, 7, Pol.',
-    'Ind., 46200 Paiporta (Valencia), Espana.',
-    'Municipio/Provincia: Paiporta, Valencia',
-    'Email SAT: sat@cotepa.com',
-    'Web: http://www.cotepa.com',
-  ], xIzq, yBase + 4.5);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.5);
-  doc.text('Validez del documento', xDer, yBase);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text([
-    `Referencia: ${valorTexto(informeMetaActual.referenciaInforme)}`,
-    `Fecha emision: ${valorTexto(informeMetaActual.fechaInforme)}`,
-    'Generado desde SAT Movil',
-    'COTEPA.',
-    'Incluye evidencias fotograficas y',
-    'firma.',
-    'Uso interno y atencion al cliente.',
-    'Copia no manipulable tras su',
-    'emision.',
-  ], xDer, yBase + 4.5);
-
-  estado.y += 58;
-}
-
-function dibujarPiePaginas(doc) {
-  const totalPaginas = doc.getNumberOfPages();
-  for (let pagina = 1; pagina <= totalPaginas; pagina += 1) {
-    doc.setPage(pagina);
-    doc.setDrawColor(...PDF_ESTILO.colorSecundario);
-    doc.line(15, 281, 195, 281);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`SAT COTEPA - Web: http://www.cotepa.com - Pagina ${pagina}/${totalPaginas}`, 15, 284.5);
-  }
-}
-
-function calcularHorasIntervencionMinimoUno(intervension) {
-  const minutos = resolverMinutosFase(intervension);
-  if (!Number.isFinite(Number(minutos)) || Number(minutos) <= 0) {
-    return 1;
-  }
-
-  const horas = Number(minutos) / 60;
-  return Math.max(1, Number(horas.toFixed(2)));
-}
-
-function construirResumenPausasComida(intervension) {
-  const pausas = Array.isArray(intervension?.pausasComida) ? intervension.pausasComida : [];
-  if (!pausas.length) {
-    return {
-      totalMinutos: 0,
-      detalle: 'Sin pausas registradas',
-    };
-  }
-
-  const totalMinutos = pausas.reduce((acumulado, pausa) => {
-    const minutosPausa = resolverMinutosFase(pausa);
-    return acumulado + (Number.isFinite(Number(minutosPausa)) ? Number(minutosPausa) : 0);
-  }, 0);
-
-  const detalle = pausas
-    .map((pausa, indice) => {
-      const inicio = formatearFecha(pausa?.inicioIso);
-      const fin = formatearFecha(pausa?.finIso);
-      const minutos = resolverMinutosFase(pausa);
-      return `Pausa ${indice + 1}: ${inicio} -> ${fin} (${Number.isFinite(Number(minutos)) ? `${Math.round(Number(minutos))} min` : 'N/D'})`;
-    })
-    .join(' | ');
-
-  return { totalMinutos, detalle };
-}
-
-function construirDatosControlTiempo({ seguimientoTiempo, desplazamiento, intervension }) {
-  const hayDatosDesplazamiento = Boolean(desplazamiento?.inicioIso || desplazamiento?.finIso || desplazamiento?.distanciaMetros);
-  const hayDatosIntervension = Boolean(intervension?.inicioIso || intervension?.finIso || intervension?.minutosGeo);
-  const hayDatosSeguimiento = Boolean(seguimientoTiempo?.inicioIso || seguimientoTiempo?.finIso || seguimientoTiempo?.minutosGeo);
-
-  if (!hayDatosDesplazamiento && !hayDatosIntervension && !hayDatosSeguimiento) {
-    return null;
-  }
-
-  const inicioDesplazamiento = desplazamiento?.inicioIso || seguimientoTiempo?.inicioIso;
-  const finDesplazamiento = desplazamiento?.finIso || seguimientoTiempo?.finIso;
-  const lugarFinDesplazamiento = desplazamiento?.ubicacionFin?.nombreLugarCompleto
-    || desplazamiento?.ubicacionFin?.nombreLugar
-    || seguimientoTiempo?.ubicacionFin?.nombreLugarCompleto
-    || seguimientoTiempo?.ubicacionFin?.nombreLugar;
-  const distanciaMetros = Number.isFinite(Number(desplazamiento?.distanciaMetros))
-    ? Math.round(Number(desplazamiento.distanciaMetros))
-    : (Number.isFinite(Number(seguimientoTiempo?.distanciaMetros))
-      ? Math.round(Number(seguimientoTiempo.distanciaMetros))
-      : null);
-  const kmDesplazamiento = Number.isFinite(Number(distanciaMetros))
-    ? Number((Number(distanciaMetros) / 1000).toFixed(2))
-    : null;
-
-  const inicioIntervension = intervension?.inicioIso || seguimientoTiempo?.inicioIso;
-  const finIntervension = intervension?.finIso || seguimientoTiempo?.finIso;
-  const lugarIntervension = intervension?.ubicacionInicio?.nombreLugarCompleto
-    || intervension?.ubicacionInicio?.nombreLugar
-    || lugarFinDesplazamiento;
-  const horasIntervension = calcularHorasIntervencionMinimoUno(intervension?.inicioIso ? intervension : seguimientoTiempo);
-  const resumenPausas = construirResumenPausasComida(intervension);
-
-  const filas = [];
-
-  if (inicioDesplazamiento) filas.push(['Inicio desplazamiento', formatearFecha(inicioDesplazamiento)]);
-  filas.push(['Lugar inicio', DIRECCION_FISCAL_COTEPA_INICIO]);
-  if (finDesplazamiento) filas.push(['Fin desplazamiento', formatearFecha(finDesplazamiento)]);
-  if (lugarFinDesplazamiento) filas.push(['Lugar fin desplazamiento', lugarFinDesplazamiento]);
-  if (kmDesplazamiento !== null) filas.push(['Kilometraje (km)', String(kmDesplazamiento)]);
-
-  if (inicioIntervension) filas.push(['Inicio intervencion', formatearFecha(inicioIntervension)]);
-  if (finIntervension) filas.push(['Fin intervencion', formatearFecha(finIntervension)]);
-  if (lugarIntervension) filas.push(['Lugar intervencion', lugarIntervension]);
-  filas.push(['Tiempo intervencion (h)', String(horasIntervension)]);
-
-  if (resumenPausas.totalMinutos > 0) {
-    filas.push(['Pausas comida (min)', String(Math.round(resumenPausas.totalMinutos))]);
-    filas.push(['Detalle pausas', resumenPausas.detalle]);
-  }
-
-  return filas;
-}
-
 async function urlADataUrl(url) {
   try {
-    const respuesta = await fetch(url);
-    if (!respuesta.ok) return null;
-    const blob = await respuesta.blob();
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const blob = await r.blob();
     return await new Promise((resolve) => {
       const lector = new FileReader();
       lector.onload = () => resolve(lector.result);
@@ -770,24 +147,576 @@ async function urlADataUrl(url) {
   }
 }
 
-async function obtenerLogoEmpresaDataUrl() {
-  if (logoEmpresaDataUrlCache) {
-    return logoEmpresaDataUrlCache;
-  }
-
+async function obtenerLogoEmpresa() {
+  if (logoEmpresaCache) return logoEmpresaCache;
   if (!logoEmpresaPromise) {
     logoEmpresaPromise = urlADataUrl(logoCotepaUrl)
-      .then((dataUrl) => {
-        logoEmpresaDataUrlCache = dataUrl || null;
-        return logoEmpresaDataUrlCache;
-      })
-      .finally(() => {
-        logoEmpresaPromise = null;
-      });
+      .then((d) => { logoEmpresaCache = d || null; return logoEmpresaCache; })
+      .finally(() => { logoEmpresaPromise = null; });
   }
-
   return logoEmpresaPromise;
 }
+
+// =====================================================================
+// Primitivas de dibujo
+// =====================================================================
+
+function setFill(doc, color) { doc.setFillColor(color[0], color[1], color[2]); }
+function setStroke(doc, color) { doc.setDrawColor(color[0], color[1], color[2]); }
+function setText(doc, color) { doc.setTextColor(color[0], color[1], color[2]); }
+
+function dibujarCabeceraPagina(doc, opciones = {}) {
+  const { mostrarTitulo = true, logoDataUrl } = opciones;
+
+  // Banda superior fina de marca
+  setFill(doc, COLOR.marca);
+  doc.rect(0, 0, PAGINA.ancho, 4, 'F');
+  setFill(doc, COLOR.acento);
+  doc.rect(0, 4, PAGINA.ancho, 0.6, 'F');
+
+  // Logo
+  const logoX = PAGINA.margenX;
+  const logoY = 8;
+  const logoSize = 14;
+  if (logoDataUrl) {
+    try { doc.addImage(logoDataUrl, 'JPEG', logoX, logoY, logoSize, logoSize); } catch { /* noop */ }
+  }
+
+  // Texto cabecera
+  setText(doc, COLOR.marca);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('COTEPA', logoX + logoSize + 3, logoY + 5.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  setText(doc, COLOR.textoSuave);
+  doc.text('Servicio de Asistencia Técnica', logoX + logoSize + 3, logoY + 10);
+
+  if (mostrarTitulo) {
+    // Bloque derecha: título informe + referencia
+    const xDer = PAGINA.ancho - PAGINA.margenX;
+    setText(doc, COLOR.marca);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('PARTE DE TRABAJO', xDer, logoY + 5.5, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    setText(doc, COLOR.textoSuave);
+    doc.text(`Ref. ${txt(metaInforme.referencia)}  ·  ${txt(metaInforme.fechaEmision)}`, xDer, logoY + 10, { align: 'right' });
+  }
+
+  // Línea separadora bajo la cabecera
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.3);
+  doc.line(PAGINA.margenX, 26, PAGINA.ancho - PAGINA.margenX, 26);
+}
+
+function dibujarPiePaginas(doc) {
+  const total = doc.getNumberOfPages();
+  for (let p = 1; p <= total; p += 1) {
+    doc.setPage(p);
+    setStroke(doc, COLOR.borde);
+    doc.setLineWidth(0.2);
+    doc.line(PAGINA.margenX, PAGINA.alto - 12, PAGINA.ancho - PAGINA.margenX, PAGINA.alto - 12);
+
+    setText(doc, COLOR.textoMute);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text(`${EMPRESA.nombre}  ·  ${EMPRESA.cif}  ·  ${EMPRESA.web}`, PAGINA.margenX, PAGINA.alto - 7);
+    doc.text(`Página ${p} de ${total}`, PAGINA.ancho - PAGINA.margenX, PAGINA.alto - 7, { align: 'right' });
+  }
+}
+
+function reservarEspacio(doc, estado, alto, opciones = {}) {
+  const limite = PAGINA.alto - PAGINA.margenInf - 4;
+  if (estado.y + alto <= limite) return;
+
+  doc.addPage();
+  dibujarCabeceraPagina(doc, { logoDataUrl: estado.logoDataUrl, mostrarTitulo: true });
+  estado.y = 32;
+  if (typeof opciones.alContinuar === 'function') opciones.alContinuar();
+}
+
+function dibujarTituloSeccion(doc, estado, titulo) {
+  reservarEspacio(doc, estado, 11);
+  setFill(doc, COLOR.acento);
+  doc.rect(PAGINA.margenX, estado.y, 2.5, 6.5, 'F');
+
+  setText(doc, COLOR.marca);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(titulo.toUpperCase(), PAGINA.margenX + 5, estado.y + 5);
+
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.2);
+  doc.line(PAGINA.margenX + 5 + doc.getTextWidth(titulo.toUpperCase()) + 3, estado.y + 4, PAGINA.ancho - PAGINA.margenX, estado.y + 4);
+
+  estado.y += 9;
+}
+
+function dibujarTarjetasResumen(doc, estado, datos) {
+  if (!datos.length) return;
+  const cols = 3;
+  const gap = 4;
+  const ancho = (PAGINA.contenido - gap * (cols - 1)) / cols;
+  const alto = 18;
+  const filas = Math.ceil(datos.length / cols);
+  const altoTotal = filas * alto + (filas - 1) * gap;
+
+  reservarEspacio(doc, estado, altoTotal + 4);
+
+  for (let i = 0; i < datos.length; i += 1) {
+    const col = i % cols;
+    const fila = Math.floor(i / cols);
+    const x = PAGINA.margenX + col * (ancho + gap);
+    const y = estado.y + fila * (alto + gap);
+    const [titulo, valor] = datos[i];
+
+    setFill(doc, COLOR.fondoSuave);
+    setStroke(doc, COLOR.borde);
+    doc.setLineWidth(0.2);
+    doc.roundedRect(x, y, ancho, alto, 1.5, 1.5, 'FD');
+
+    setText(doc, COLOR.textoMute);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text(String(titulo).toUpperCase(), x + 3, y + 5);
+
+    setText(doc, COLOR.marca);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    const lineas = doc.splitTextToSize(txt(valor), ancho - 6);
+    doc.text(lineas.slice(0, 2), x + 3, y + 10.5);
+  }
+
+  estado.y += altoTotal + 5;
+}
+
+function dibujarTablaInfo(doc, estado, filas) {
+  if (!filas || !filas.length) return;
+  const xEtiqueta = PAGINA.margenX + 3;
+  const xValor = PAGINA.margenX + 65;
+  const anchoValor = PAGINA.contenido - (xValor - PAGINA.margenX) - 3;
+  const padFila = 1.5;
+  const altoLinea = 4.2;
+
+  // Pre-medir
+  const items = filas.map(([etiqueta, valor]) => {
+    const lineas = doc.splitTextToSize(txt(valor), anchoValor);
+    const altoFila = Math.max(altoLinea + padFila * 2, lineas.length * altoLinea + padFila * 2);
+    return { etiqueta, lineas, altoFila };
+  });
+  const total = items.reduce((a, it) => a + it.altoFila, 0);
+
+  reservarEspacio(doc, estado, total + 2);
+
+  let y = estado.y;
+  items.forEach((it, idx) => {
+    if (idx % 2 === 0) {
+      setFill(doc, COLOR.fondoZebra);
+      doc.rect(PAGINA.margenX, y, PAGINA.contenido, it.altoFila, 'F');
+    }
+
+    setText(doc, COLOR.textoSuave);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.text(it.etiqueta, xEtiqueta, y + padFila + 3);
+
+    setText(doc, COLOR.texto);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(it.lineas, xValor, y + padFila + 3);
+
+    y += it.altoFila;
+  });
+
+  // Borde envolvente sutil
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.2);
+  doc.rect(PAGINA.margenX, estado.y, PAGINA.contenido, total);
+
+  estado.y += total + 4;
+}
+
+function dibujarParrafo(doc, estado, texto) {
+  const contenido = txt(texto, 'Sin descripción.');
+  const lineas = doc.splitTextToSize(contenido, PAGINA.contenido - 6);
+  const alto = lineas.length * 4.4 + 6;
+  reservarEspacio(doc, estado, alto);
+
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.2);
+  doc.rect(PAGINA.margenX, estado.y, PAGINA.contenido, alto);
+
+  setText(doc, COLOR.texto);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.text(lineas, PAGINA.margenX + 3, estado.y + 5);
+
+  estado.y += alto + 4;
+}
+
+function dibujarTablaMateriales(doc, estado, materiales) {
+  if (!materiales.length) {
+    dibujarParrafo(doc, estado, 'No se han registrado materiales en esta intervención.');
+    return;
+  }
+
+  const x = PAGINA.margenX;
+  const w = PAGINA.contenido;
+  const colCantidad = 22;
+  const colPrecio = 32;
+  const colImporte = 32;
+  const colNombre = w - colCantidad - colPrecio - colImporte;
+  const altoCab = 8;
+  const altoFila = 7;
+  const altoTotal = 9;
+
+  reservarEspacio(doc, estado, altoCab + materiales.length * altoFila + altoTotal + 4);
+
+  // Cabecera
+  setFill(doc, COLOR.marca);
+  doc.rect(x, estado.y, w, altoCab, 'F');
+  setText(doc, COLOR.blanco);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('MATERIAL', x + 3, estado.y + 5.5);
+  doc.text('CANT.', x + colNombre + colCantidad / 2, estado.y + 5.5, { align: 'center' });
+  doc.text('PRECIO UD.', x + colNombre + colCantidad + colPrecio / 2, estado.y + 5.5, { align: 'center' });
+  doc.text('IMPORTE', x + w - 3, estado.y + 5.5, { align: 'right' });
+
+  let y = estado.y + altoCab;
+  materiales.forEach((m, idx) => {
+    if (idx % 2 === 1) {
+      setFill(doc, COLOR.fondoZebra);
+      doc.rect(x, y, w, altoFila, 'F');
+    }
+    setText(doc, COLOR.texto);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const nombre = doc.splitTextToSize(txt(m.nombre, 'Material'), colNombre - 4)[0];
+    doc.text(nombre, x + 3, y + 4.7);
+    doc.text(String(m.cantidad ?? '—'), x + colNombre + colCantidad / 2, y + 4.7, { align: 'center' });
+    doc.text(m.precioUnitario != null ? `${m.precioUnitario.toFixed(2)} €` : '—',
+      x + colNombre + colCantidad + colPrecio / 2, y + 4.7, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text(m.importe != null ? `${m.importe.toFixed(2)} €` : '—', x + w - 3, y + 4.7, { align: 'right' });
+    y += altoFila;
+  });
+
+  // Total
+  const total = materiales.reduce((a, m) => a + (Number.isFinite(m.importe) ? m.importe : 0), 0);
+  setFill(doc, COLOR.bordeSuave);
+  doc.rect(x, y, w, altoTotal, 'F');
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.2);
+  doc.line(x, y, x + w, y);
+  setText(doc, COLOR.marca);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.text('TOTAL MATERIALES', x + 3, y + 6);
+  doc.text(`${total.toFixed(2)} €`, x + w - 3, y + 6, { align: 'right' });
+
+  // Borde tabla
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.2);
+  doc.rect(x, estado.y, w, altoCab + materiales.length * altoFila + altoTotal);
+
+  estado.y += altoCab + materiales.length * altoFila + altoTotal + 5;
+}
+
+function dibujarValoracionEconomica(doc, estado, val) {
+  if (!val) return;
+  const aplicaFest = Boolean(val.aplicaRecargoFestivo);
+  const aplicaFuera = Boolean(val.aplicaRecargoFueraHorario);
+  const recFestPct = aplicaFest ? Number(val.recargoFestivoPct || 0) : 0;
+  const recFueraPct = aplicaFuera ? Number(val.recargoFueraHorarioPct || 0) : 0;
+  const pctRecargoMO = num(val.porcentajeRecargoManoObra) ?? (recFestPct + recFueraPct);
+  const moBase = num(val.costeManoObraBase)
+    ?? (Number(val.tarifaManoObraHora || 0) * Number(val.horasManoObra || 0));
+  const moTotal = num(val.costeManoObraTotal) ?? (moBase * (1 + pctRecargoMO / 100));
+  const desplTotal = num(val.costeDesplazamientoTotal)
+    ?? (Number(val.tarifaDesplazamientoKm || 0) * Number(val.kmDesplazamientoFacturables || 0));
+  const materiales = num(val.costeMaterialesEditable) ?? 0;
+  const totalGeneral = num(val.costeTotal) ?? (materiales + moTotal + desplTotal);
+
+  const x = PAGINA.margenX;
+  const w = PAGINA.contenido;
+  const colDesc = w - 35 - 35;
+  const colDetalle = 35;
+  const colImporte = 35;
+  const altoFila = 6.5;
+
+  const filas = [
+    ['Materiales', '', materiales],
+    ['Mano de obra', `${num(val.horasManoObra) ?? 0} h × ${eur(val.tarifaManoObraHora)}`, moBase],
+  ];
+  if (pctRecargoMO > 0) {
+    filas.push([`Recargo mano de obra`, `+${pctRecargoMO.toFixed(2)} %`, moTotal - moBase]);
+  }
+  filas.push([
+    'Desplazamiento',
+    `${num(val.kmDesplazamientoFacturables) ?? 0} km × ${eur(val.tarifaDesplazamientoKm)}`,
+    desplTotal,
+  ]);
+
+  const altoCab = 7;
+  const altoTotal = 10;
+  reservarEspacio(doc, estado, altoCab + filas.length * altoFila + altoTotal + 4);
+
+  // Cabecera
+  setFill(doc, COLOR.marca);
+  doc.rect(x, estado.y, w, altoCab, 'F');
+  setText(doc, COLOR.blanco);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('CONCEPTO', x + 3, estado.y + 5);
+  doc.text('DETALLE', x + colDesc + colDetalle / 2, estado.y + 5, { align: 'center' });
+  doc.text('IMPORTE', x + w - 3, estado.y + 5, { align: 'right' });
+
+  let y = estado.y + altoCab;
+  filas.forEach((f, idx) => {
+    if (idx % 2 === 1) {
+      setFill(doc, COLOR.fondoZebra);
+      doc.rect(x, y, w, altoFila, 'F');
+    }
+    setText(doc, COLOR.texto);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(String(f[0]), x + 3, y + 4.5);
+    setText(doc, COLOR.textoSuave);
+    doc.setFontSize(8.5);
+    doc.text(String(f[1]), x + colDesc + colDetalle / 2, y + 4.5, { align: 'center' });
+    setText(doc, COLOR.texto);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(eur(f[2]), x + w - 3, y + 4.5, { align: 'right' });
+    y += altoFila;
+  });
+
+  // Total general destacado
+  setFill(doc, COLOR.marca);
+  doc.rect(x, y, w, altoTotal, 'F');
+  setText(doc, COLOR.blanco);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('TOTAL', x + 3, y + 6.5);
+  doc.setFontSize(13);
+  doc.text(eur(totalGeneral), x + w - 3, y + 6.8, { align: 'right' });
+
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.2);
+  doc.rect(x, estado.y, w, altoCab + filas.length * altoFila + altoTotal);
+
+  estado.y += altoCab + filas.length * altoFila + altoTotal + 5;
+}
+
+async function dibujarFotos(doc, estado, urls) {
+  if (!Array.isArray(urls) || !urls.length) {
+    dibujarParrafo(doc, estado, 'Sin evidencias fotográficas adjuntas.');
+    return;
+  }
+
+  const cols = 2;
+  const gap = 4;
+  const ancho = (PAGINA.contenido - gap * (cols - 1)) / cols;
+  const alto = 60;
+  const padTitulo = 6;
+  const maxImgAncho = ancho - 4;
+  const maxImgAlto = alto - padTitulo - 3;
+
+  for (let i = 0; i < urls.length; i += cols) {
+    reservarEspacio(doc, estado, alto + 3);
+    for (let c = 0; c < cols; c += 1) {
+      const idx = i + c;
+      if (!urls[idx]) continue;
+      const x = PAGINA.margenX + c * (ancho + gap);
+      const y = estado.y;
+
+      setStroke(doc, COLOR.borde);
+      doc.setLineWidth(0.2);
+      doc.rect(x, y, ancho, alto);
+      setFill(doc, COLOR.bordeSuave);
+      doc.rect(x, y, ancho, padTitulo, 'F');
+
+      setText(doc, COLOR.marca);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text(`Evidencia ${idx + 1}`, x + 2.5, y + 4.2);
+
+      const dataUrl = await urlADataUrl(urls[idx]);
+      if (!dataUrl) {
+        setText(doc, COLOR.textoMute);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8);
+        doc.text('No se pudo cargar la imagen', x + ancho / 2, y + alto / 2, { align: 'center' });
+        continue;
+      }
+
+      await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const ratio = img.naturalWidth / img.naturalHeight;
+          let w = maxImgAncho;
+          let h = w / ratio;
+          if (h > maxImgAlto) { h = maxImgAlto; w = h * ratio; }
+          const xImg = x + (ancho - w) / 2;
+          const yImg = y + padTitulo + 1 + (maxImgAlto - h) / 2;
+          try { doc.addImage(dataUrl, 'JPEG', xImg, yImg, w, h); } catch { /* noop */ }
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = dataUrl;
+      });
+    }
+    estado.y += alto + 3;
+  }
+}
+
+async function dibujarFirma(doc, estado, firmaUrl, nombreFirmante) {
+  const alto = 48;
+  reservarEspacio(doc, estado, alto + 3);
+
+  const x = PAGINA.margenX;
+  const w = PAGINA.contenido;
+  const colFirma = w * 0.55;
+  const colDatos = w - colFirma;
+
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.2);
+  doc.rect(x, estado.y, w, alto);
+  doc.line(x + colFirma, estado.y, x + colFirma, estado.y + alto);
+
+  // Caja firma
+  setText(doc, COLOR.textoSuave);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text('FIRMA DEL CLIENTE', x + 3, estado.y + 5);
+
+  if (firmaUrl) {
+    const dataUrl = await urlADataUrl(firmaUrl);
+    if (dataUrl) {
+      try { doc.addImage(dataUrl, 'PNG', x + 3, estado.y + 7, colFirma - 6, alto - 12); } catch { /* noop */ }
+    } else {
+      setText(doc, COLOR.textoMute);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(9);
+      doc.text('Firma no disponible', x + colFirma / 2, estado.y + alto / 2, { align: 'center' });
+    }
+  } else {
+    setText(doc, COLOR.textoMute);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.text('Sin firma registrada', x + colFirma / 2, estado.y + alto / 2, { align: 'center' });
+  }
+
+  // Datos firmante
+  const xD = x + colFirma + 4;
+  setText(doc, COLOR.textoSuave);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text('DATOS CONFORMIDAD', xD, estado.y + 5);
+
+  setText(doc, COLOR.textoSuave);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.text('Nombre y apellidos:', xD, estado.y + 14);
+  setText(doc, COLOR.texto);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text(txt(nombreFirmante, 'Sin nombre'), xD, estado.y + 19);
+
+  setText(doc, COLOR.textoSuave);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.text('Fecha:', xD, estado.y + 27);
+  setText(doc, COLOR.texto);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text(txt(metaInforme.fechaEmision), xD, estado.y + 32);
+
+  setText(doc, COLOR.textoMute);
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(7.5);
+  const aviso = 'El cliente declara haber recibido el servicio descrito y dar su conformidad a las tareas realizadas.';
+  doc.text(doc.splitTextToSize(aviso, colDatos - 8), xD, estado.y + 40);
+
+  estado.y += alto + 4;
+}
+
+function dibujarBloqueLegal(doc, estado) {
+  reservarEspacio(doc, estado, 22);
+  const x = PAGINA.margenX;
+  const w = PAGINA.contenido;
+
+  setFill(doc, COLOR.bordeSuave);
+  setStroke(doc, COLOR.borde);
+  doc.setLineWidth(0.2);
+  doc.rect(x, estado.y, w, 20, 'FD');
+
+  setText(doc, COLOR.marca);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text('AVISO LEGAL', x + 3, estado.y + 4.5);
+
+  setText(doc, COLOR.textoSuave);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  const aviso = `${EMPRESA.nombre} (${EMPRESA.cif}) · ${EMPRESA.direccion}. Documento generado automáticamente desde la plataforma SAT Móvil COTEPA. La conformidad del cliente se acredita mediante firma digital. Las imágenes incluidas constituyen evidencias de la intervención. Los datos personales se tratan según la normativa vigente; para ejercer derechos, escriba a ${EMPRESA.email}.`;
+  doc.text(doc.splitTextToSize(aviso, w - 6), x + 3, estado.y + 9);
+
+  estado.y += 22;
+}
+
+// =====================================================================
+// Construcción de datos
+// =====================================================================
+
+function construirFilasControlTiempos({ desplazamiento, intervension, seguimientoTiempo }) {
+  const filas = [];
+  const desp = desplazamiento || {};
+  const inter = intervension || {};
+  const seg = seguimientoTiempo || {};
+
+  const inicioDesp = desp.inicioIso || seg.inicioIso;
+  const finDesp = desp.finIso || seg.finIso;
+  const lugarFinDesp = desp.ubicacionFin?.nombreLugarCompleto
+    || desp.ubicacionFin?.nombreLugar
+    || seg.ubicacionFin?.nombreLugarCompleto
+    || seg.ubicacionFin?.nombreLugar;
+  const distMetros = num(desp.distanciaMetros) ?? num(seg.distanciaMetros);
+  const km = distMetros != null ? Number((distMetros / 1000).toFixed(2)) : null;
+
+  const inicioInt = inter.inicioIso;
+  const finInt = inter.finIso;
+  const lugarInt = inter.ubicacionInicio?.nombreLugarCompleto || inter.ubicacionInicio?.nombreLugar;
+  const horasInt = (inicioInt || finInt) ? calcularHorasIntervencionMinimoUno(inter) : null;
+
+  // Desplazamiento
+  if (inicioDesp) filas.push(['Inicio desplazamiento', formatearFechaCorta(inicioDesp)]);
+  if (finDesp) filas.push(['Fin desplazamiento', formatearFechaCorta(finDesp)]);
+  if (lugarFinDesp) filas.push(['Lugar destino', lugarFinDesp]);
+  if (km != null) filas.push(['Distancia recorrida', `${km} km (ida) · ${(km * 2).toFixed(2)} km facturables`]);
+
+  // Intervención
+  if (inicioInt) filas.push(['Inicio intervención', formatearFechaCorta(inicioInt)]);
+  if (finInt) filas.push(['Fin intervención', formatearFechaCorta(finInt)]);
+  if (lugarInt) filas.push(['Lugar intervención', lugarInt]);
+  if (horasInt != null) filas.push(['Tiempo intervención', `${horasInt} h`]);
+
+  // Pausas
+  const pausas = Array.isArray(inter.pausasComida) ? inter.pausasComida : [];
+  if (pausas.length) {
+    const total = pausas.reduce((a, p) => a + (resolverMinutosFase(p) || 0), 0);
+    filas.push(['Pausas registradas', `${pausas.length} (${total} min)`]);
+  }
+
+  return filas;
+}
+
+// =====================================================================
+// Construcción del PDF
+// =====================================================================
 
 async function crearPdfInforme({
   parte,
@@ -804,130 +733,112 @@ async function crearPdfInforme({
   fotosIntervencionUrls,
   secuencialDiario,
 }) {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const estado = { y: 18 };
-  const materiales = materialesDesdeTexto(formulario.materialesTexto);
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
   const fechaInformeIso = new Date().toISOString();
-  const prioridadInforme = valorTexto(parte?.prioridad || formulario?.prioridad, 'N/D').toUpperCase();
-  const tiempoMinInforme = valorTexto(
-    parte?.tiempo_empleado_minutos !== undefined && parte?.tiempo_empleado_minutos !== null
-      ? String(parte.tiempo_empleado_minutos)
-      : String(formulario?.tiempo_empleado),
-    'N/D',
-  );
-  const descripcionProblemaInforme = parte?.descripcion_averia || formulario?.descripcion_problema || '';
-  const referenciaInforme = crearReferenciaInforme(fechaInformeIso, secuencialDiario);
-  const logoEmpresaDataUrl = await obtenerLogoEmpresaDataUrl();
-  logoCabeceraActual = logoEmpresaDataUrl;
-  informeMetaActual = {
-    referenciaInforme,
-    fechaInforme: formatearFechaOficial(fechaInformeIso),
-    prioridad: prioridadInforme,
-    tiempoMin: tiempoMinInforme,
+  const referencia = crearReferenciaInforme(fechaInformeIso, secuencialDiario);
+  const logoDataUrl = await obtenerLogoEmpresa();
+
+  metaInforme = {
+    referencia,
+    fechaEmision: formatearFechaSolo(fechaInformeIso),
   };
 
-  iniciarPagina(doc, estado);
-  dibujarCabeceraPrincipal(doc, estado, referenciaInforme, logoEmpresaDataUrl);
+  const estado = { y: 32, logoDataUrl };
+  dibujarCabeceraPagina(doc, { logoDataUrl, mostrarTitulo: true });
 
-  dibujarResumenTarjetas(doc, estado, [
-    ['CLIENTE', clienteNombre],
-    ['EQUIPO', equipoNombre],
-    ['TECNICO', tecnicoNombre],
-    ['N INFORME', referenciaInforme],
-    ['FECHA', formatearFechaOficial(fechaInformeIso)],
-    ['PRIORIDAD', prioridadInforme],
+  // ==== HERO: Cliente / Equipo / Técnico ====
+  dibujarTarjetasResumen(doc, estado, [
+    ['Cliente', clienteNombre],
+    ['Equipo', equipoNombre],
+    ['Técnico', tecnicoNombre],
   ]);
 
-  dibujarTituloSeccion(doc, estado, 'Datos del parte');
-  const datosParte = [
-    ['Tiempo empleado (min)', tiempoMinInforme],
-    ['Descripcion problema', descripcionProblemaInforme],
-  ];
-  if (parte?.tareas_realizadas) datosParte.push(['Trabajos realizados', parte.tareas_realizadas]);
-  dibujarBloqueDatos(doc, estado, datosParte);
+  // ==== Identificación del parte ====
+  const tiempoMin = parte?.tiempo_empleado_minutos != null
+    ? String(parte.tiempo_empleado_minutos)
+    : String(formulario?.tiempo_empleado || '');
+  const prioridad = txt(parte?.prioridad || formulario?.prioridad).toUpperCase();
+  const descripcion = parte?.descripcion_averia || formulario?.descripcion_problema || '';
 
-  dibujarTituloSeccion(doc, estado, 'Control de tiempos y geolocalizacion');
-  const datosControl = construirDatosControlTiempo({ seguimientoTiempo, desplazamiento, intervension });
-  if (datosControl) {
-    dibujarBloqueDatos(doc, estado, datosControl);
-  } else {
-    dibujarParrafo(doc, estado, 'Sin datos de control de tiempos.');
+  dibujarTituloSeccion(doc, estado, 'Identificación');
+  dibujarTablaInfo(doc, estado, [
+    ['Nº de informe', referencia],
+    ['Fecha de emisión', metaInforme.fechaEmision],
+    ['Prioridad', prioridad],
+    ['Tiempo empleado', tiempoMin ? `${tiempoMin} min` : '—'],
+  ]);
+
+  // ==== Descripción de la avería ====
+  dibujarTituloSeccion(doc, estado, 'Descripción de la avería');
+  dibujarParrafo(doc, estado, descripcion);
+
+  // ==== Trabajos realizados ====
+  if (parte?.tareas_realizadas) {
+    dibujarTituloSeccion(doc, estado, 'Trabajos realizados');
+    dibujarParrafo(doc, estado, parte.tareas_realizadas);
   }
 
+  // ==== Control de tiempos ====
+  const filasTiempo = construirFilasControlTiempos({ desplazamiento, intervension, seguimientoTiempo });
+  if (filasTiempo.length) {
+    dibujarTituloSeccion(doc, estado, 'Control de tiempos y geolocalización');
+    dibujarTablaInfo(doc, estado, filasTiempo);
+  }
+
+  // ==== Materiales ====
+  const materiales = materialesDesdeTexto(formulario?.materialesTexto || '');
   dibujarTituloSeccion(doc, estado, 'Materiales utilizados');
   dibujarTablaMateriales(doc, estado, materiales);
 
+  // ==== Valoración económica ====
   if (valoracionEconomica) {
-    const aplicaRecargoFestivo = Boolean(valoracionEconomica.aplicaRecargoFestivo);
-    const aplicaRecargoFueraHorario = Boolean(valoracionEconomica.aplicaRecargoFueraHorario);
-    const recargoFestivoPctAplicado = aplicaRecargoFestivo
-      ? Number(valoracionEconomica.recargoFestivoPct || 0)
-      : 0;
-    const recargoFueraHorarioPctAplicado = aplicaRecargoFueraHorario
-      ? Number(valoracionEconomica.recargoFueraHorarioPct || 0)
-      : 0;
-    const porcentajeRecargoManoObra = Number.isFinite(Number(valoracionEconomica.porcentajeRecargoManoObra))
-      ? Number(valoracionEconomica.porcentajeRecargoManoObra)
-      : (recargoFestivoPctAplicado + recargoFueraHorarioPctAplicado);
-    const costeManoObraBase = Number.isFinite(Number(valoracionEconomica.costeManoObraBase))
-      ? Number(valoracionEconomica.costeManoObraBase)
-      : Number(valoracionEconomica.tarifaManoObraHora || 0) * Number(valoracionEconomica.horasManoObra || 0);
-
-    dibujarTituloSeccion(doc, estado, 'Valoracion economica');
-    dibujarBloqueDatosDosColumnas(doc, estado, [
-      ['Materiales (€)', Number.isFinite(Number(valoracionEconomica.costeMaterialesEditable)) ? `${Number(valoracionEconomica.costeMaterialesEditable).toFixed(2)} EUR` : 'N/D'],
-      ['Tarifa mano de obra (€/h)', Number.isFinite(Number(valoracionEconomica.tarifaManoObraHora)) ? `${Number(valoracionEconomica.tarifaManoObraHora).toFixed(2)} EUR` : 'N/D'],
-      ['Horas mano de obra', Number.isFinite(Number(valoracionEconomica.horasManoObra)) ? String(Number(valoracionEconomica.horasManoObra).toFixed(2)) : 'N/D'],
-      ['Recargo festivo aplicado', aplicaRecargoFestivo ? 'Si' : 'No'],
-      ['Recargo festivo (%)', `${recargoFestivoPctAplicado.toFixed(2)} %`],
-      ['Recargo fuera horario aplicado', aplicaRecargoFueraHorario ? 'Si' : 'No'],
-      ['Recargo fuera horario (%)', `${recargoFueraHorarioPctAplicado.toFixed(2)} %`],
-      ['Mano de obra base (€)', `${costeManoObraBase.toFixed(2)} EUR`],
-      ['Recargo total mano de obra (%)', `${porcentajeRecargoManoObra.toFixed(2)} %`],
-      ['Coste mano de obra (€)', Number.isFinite(Number(valoracionEconomica.costeManoObraTotal)) ? `${Number(valoracionEconomica.costeManoObraTotal).toFixed(2)} EUR` : 'N/D'],
-      ['Precio kilometraje (€/km)', Number.isFinite(Number(valoracionEconomica.tarifaDesplazamientoKm)) ? `${Number(valoracionEconomica.tarifaDesplazamientoKm).toFixed(2)} EUR` : 'N/D'],
-      ['Km facturables', Number.isFinite(Number(valoracionEconomica.kmDesplazamientoFacturables)) ? String(Number(valoracionEconomica.kmDesplazamientoFacturables).toFixed(2)) : 'N/D'],
-      ['Coste desplazamiento (€)', Number.isFinite(Number(valoracionEconomica.costeDesplazamientoTotal)) ? `${Number(valoracionEconomica.costeDesplazamientoTotal).toFixed(2)} EUR` : 'N/D'],
-      ['TOTAL (€)', Number.isFinite(Number(valoracionEconomica.costeTotal)) ? `${Number(valoracionEconomica.costeTotal).toFixed(2)} EUR` : 'N/D'],
-    ]);
+    dibujarTituloSeccion(doc, estado, 'Valoración económica');
+    dibujarValoracionEconomica(doc, estado, valoracionEconomica);
   }
 
-  dibujarTituloSeccion(doc, estado, 'Evidencias fotograficas');
-  await dibujarFotos(doc, estado, fotosIntervencionUrls);
+  // ==== Evidencias fotográficas ====
+  if (Array.isArray(fotosIntervencionUrls) && fotosIntervencionUrls.length) {
+    dibujarTituloSeccion(doc, estado, 'Evidencias fotográficas');
+    await dibujarFotos(doc, estado, fotosIntervencionUrls);
+  }
 
-  dibujarTituloSeccion(doc, estado, 'Datos de emision y bloque legal');
-  dibujarBloqueLegal(doc, estado);
-
-  dibujarTituloSeccion(doc, estado, 'Conformidad');
+  // ==== Conformidad ====
+  dibujarTituloSeccion(doc, estado, 'Conformidad del cliente');
   await dibujarFirma(doc, estado, firmaUrl, nombreFirmante);
 
+  // ==== Aviso legal ====
+  dibujarBloqueLegal(doc, estado);
+
+  // Pie de página
   dibujarPiePaginas(doc);
 
-  const referenciaSegura = referenciaInforme.replace(/\//g, '-').replace(/[^a-zA-Z0-9\-_]/g, '');
-  const nombreArchivo = `${referenciaSegura}.pdf`;
-  const pdfBlob = doc.output('blob');
+  const refSegura = referencia.replace(/\//g, '-').replace(/[^a-zA-Z0-9\-_]/g, '');
+  return { pdfBlob: doc.output('blob'), nombreArchivo: `${refSegura}.pdf` };
+}
 
-  return { pdfBlob, nombreArchivo };
+// =====================================================================
+// API pública (sin cambios de firma)
+// =====================================================================
+
+export function obtenerUrlPublicaInformeParte(clienteId, parteId) {
+  const cliente = txt(clienteId, '').trim();
+  const parte = txt(parteId, '').trim();
+  if (!cliente || !parte) return '';
+  const supabase = obtenerClienteSupabase();
+  const ruta = `${cliente}/informe-parte-${parte}.pdf`;
+  const { data } = supabase.storage.from('informes-partes').getPublicUrl(ruta);
+  return data?.publicUrl || '';
 }
 
 async function subirPdfInforme({ pdfBlob, nombreArchivo, clienteId }) {
   const supabase = obtenerClienteSupabase();
   const ruta = `${clienteId}/${nombreArchivo}`;
-
-  const { error: errorSubida } = await supabase.storage
+  const { error } = await supabase.storage
     .from('informes-partes')
-    .upload(ruta, pdfBlob, {
-      upsert: true,
-      contentType: 'application/pdf',
-      cacheControl: '3600',
-    });
-
-  if (errorSubida) {
-    throw new Error(
-      `No se pudo subir el PDF a Storage. Verifica bucket/policies de informes-partes. (${errorSubida.message})`,
-    );
+    .upload(ruta, pdfBlob, { upsert: true, contentType: 'application/pdf', cacheControl: '3600' });
+  if (error) {
+    throw new Error(`No se pudo subir el PDF a Storage: ${error.message}`);
   }
-
   const { data } = supabase.storage.from('informes-partes').getPublicUrl(ruta);
   return data?.publicUrl || null;
 }
@@ -936,16 +847,14 @@ async function obtenerSecuencialDiario() {
   try {
     const supabase = obtenerClienteSupabase();
     const hoy = new Date();
-    const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).toISOString();
-    const finDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 1).toISOString();
-
+    const inicio = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).toISOString();
+    const fin = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 1).toISOString();
     const { count } = await supabase
       .from('ordenes_trabajo')
       .select('id', { count: 'exact', head: true })
       .eq('estado', 'finalizado')
-      .gte('fecha_fin', inicioDia)
-      .lt('fecha_fin', finDia);
-
+      .gte('fecha_fin', inicio)
+      .lt('fecha_fin', fin);
     return (count || 0) + 1;
   } catch {
     return 1;
@@ -967,7 +876,6 @@ export async function generarYSubirInformeParte({
   fotosIntervencionUrls,
 }) {
   const secuencialDiario = await obtenerSecuencialDiario();
-
   const { pdfBlob, nombreArchivo } = await crearPdfInforme({
     parte,
     formulario,
@@ -983,48 +891,52 @@ export async function generarYSubirInformeParte({
     fotosIntervencionUrls,
     secuencialDiario,
   });
-
-  const pdfUrl = await subirPdfInforme({
-    pdfBlob,
-    nombreArchivo,
-    clienteId: formulario.cliente_id,
-  });
-
-  if (!pdfUrl) {
-    throw new Error('No se pudo obtener la URL pública del informe PDF.');
-  }
-
+  const pdfUrl = await subirPdfInforme({ pdfBlob, nombreArchivo, clienteId: formulario.cliente_id });
+  if (!pdfUrl) throw new Error('No se pudo obtener la URL pública del informe PDF.');
   return { pdfUrl, nombreArchivo };
 }
 
 export async function generarInformeParteDemoLocal() {
   const ahoraIso = new Date().toISOString();
   const secuencialDiario = await obtenerSecuencialDiario();
-
   const { pdfBlob, nombreArchivo } = await crearPdfInforme({
-    parte: { id: 'demo-local' },
+    parte: { id: 'demo-local', tareas_realizadas: 'Sustitución de resistencia y limpieza de cámara. Verificación de termostato y prueba de carga.' },
     formulario: {
       cliente_id: 'demo-cliente',
       prioridad: 'alta',
       tiempo_empleado: '90',
-      descripcion_problema: 'No alcanza temperatura de consigna.',
+      descripcion_problema: 'El equipo no alcanza la temperatura de consigna y muestra error E-04 de forma intermitente.',
       materialesTexto: 'Resistencia 220V;1;49.90\nKit limpieza horno;1;18.50',
     },
-    seguimientoTiempo: {
+    seguimientoTiempo: null,
+    desplazamiento: {
       inicioIso: ahoraIso,
       finIso: ahoraIso,
-      ubicacionInicio: { nombreLugar: 'Quart de les Valls | Comunidad Valenciana' },
-      ubicacionFin: { nombreLugar: 'Quart de les Valls | Comunidad Valenciana' },
-      distanciaMetros: 1,
-      minutosGeo: 1,
+      ubicacionFin: { nombreLugarCompleto: 'C/ Mayor 12, Quart de les Valls (Valencia)' },
+      distanciaMetros: 18500,
     },
-    desplazamiento: null,
-    intervension: null,
-    valoracionEconomica: null,
-    clienteNombre: 'Demo SAT - Panaderia Centro',
+    intervension: {
+      inicioIso: ahoraIso,
+      finIso: ahoraIso,
+      ubicacionInicio: { nombreLugarCompleto: 'C/ Mayor 12, Quart de les Valls (Valencia)' },
+      minutosGeo: 90,
+      pausasComida: [],
+    },
+    valoracionEconomica: {
+      costeMaterialesEditable: 68.40,
+      tarifaManoObraHora: 50,
+      horasManoObra: 1.5,
+      tarifaDesplazamientoKm: 0.5,
+      kmDesplazamientoFacturables: 37,
+      recargoFestivoPct: 25,
+      recargoFueraHorarioPct: 20,
+      aplicaRecargoFestivo: false,
+      aplicaRecargoFueraHorario: false,
+    },
+    clienteNombre: 'Panadería Centro',
     equipoNombre: 'Horno Convencional',
-    tecnicoNombre: 'Demo SAT - Laura Gomez',
-    nombreFirmante: 'Cliente demo',
+    tecnicoNombre: 'Laura Gómez',
+    nombreFirmante: 'Antonio Pérez',
     firmaUrl: '',
     fotosIntervencionUrls: [],
     secuencialDiario,
@@ -1038,7 +950,5 @@ export async function generarInformeParteDemoLocal() {
   enlace.click();
   document.body.removeChild(enlace);
   URL.revokeObjectURL(url);
-
   return { nombreArchivo };
 }
-
