@@ -254,6 +254,46 @@ function dibujarTituloSeccion(doc, estado, titulo) {
   estado.y += 9;
 }
 
+// Extrae solo las frases descriptivas de tareas_realizadas, descartando
+// los marcadores tecnicos generados automaticamente: cabeceras de fase,
+// timestamps, geolocalizacion, lugar, distancias, tiempos, firma y URLs
+// de fotos. Asi el texto libre que escribe el tecnico (o el admin al
+// editar el parte) queda visible y limpio en el PDF.
+function limpiarTextoTrabajosRealizados(tareasRealizadas) {
+  const texto = String(tareasRealizadas || '').trim();
+  if (!texto) {
+    return '';
+  }
+
+  const PATRONES_TECNICOS = [
+    /^Desplazamiento\b/i,
+    /^Intervenci[oó]n\b/i,
+    /^Parte registrado desde movilidad\b/i,
+    /^Inicio:/i,
+    /^Fin:/i,
+    /^Inicio t[eé]cnico:/i,
+    /^Fin t[eé]cnico:/i,
+    /^Geo\b/i,
+    /^Lugar\b/i,
+    /^Distancia\b/i,
+    /^Tiempo\b/i,
+    /^Pausas? /i,
+    /^Pausa \d+/i,
+    /^Total pausa/i,
+    /^Factura\b/i,
+    /^Firmado por:/i,
+    /^Fotos intervenci[oó]n:/i,
+  ];
+
+  const fragmentos = texto
+    .split('|')
+    .map((parte) => parte.trim())
+    .filter(Boolean)
+    .filter((parte) => !PATRONES_TECNICOS.some((re) => re.test(parte)));
+
+  return fragmentos.join(' ').trim();
+}
+
 function dibujarTarjetasResumen(doc, estado, datos) {
   if (!datos.length) return;
   const cols = 3;
@@ -796,9 +836,13 @@ async function crearPdfInforme({
   dibujarParrafo(doc, estado, descripcion);
 
   // ==== Trabajos realizados ====
-  if (parte?.tareas_realizadas) {
+  // Filtramos los marcadores tecnicos (geolocalizacion, firma, URLs de fotos)
+  // que conviven en `tareas_realizadas` con el texto descriptivo del tecnico
+  // o con el texto libre que el admin haya introducido al editar el parte.
+  const trabajosTexto = limpiarTextoTrabajosRealizados(parte?.tareas_realizadas);
+  if (trabajosTexto) {
     dibujarTituloSeccion(doc, estado, 'Trabajos realizados');
-    dibujarParrafo(doc, estado, parte.tareas_realizadas);
+    dibujarParrafo(doc, estado, trabajosTexto);
   }
 
   // ==== Control de tiempos ====
