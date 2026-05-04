@@ -194,6 +194,7 @@ const FORM_INICIAL = {
   tecnico_id: '',
   nombre_firmante: '',
   descripcion_problema: '',
+  tareas_realizadas_libre: '',
   materialesTexto: '',
   tiempo_empleado: '60',
   prioridad: 'media',
@@ -1440,6 +1441,17 @@ export function ParteTrabajoView() {
             onChange={(e) => setFormulario((prev) => ({ ...prev, descripcion_problema: e.target.value }))}
             className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
             placeholder="Describe la avería reportada"
+          />
+        </label>
+
+        <label className="block lg:col-span-2">
+          <span className="mb-1 block text-xs font-semibold text-slate-700">Tareas realizadas</span>
+          <textarea
+            rows={4}
+            value={formulario.tareas_realizadas_libre}
+            onChange={(e) => setFormulario((prev) => ({ ...prev, tareas_realizadas_libre: e.target.value }))}
+            className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+            placeholder="Describe el trabajo realizado (diagnóstico, acciones, sustituciones, pruebas, etc.)"
           />
         </label>
 

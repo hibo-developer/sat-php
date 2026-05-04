@@ -245,6 +245,22 @@ function esDataUrlImagen(valor) {
   return /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(valor || '');
 }
 
+function blobDesdeDataUrlImagen(dataUrl) {
+  const raw = String(dataUrl || '');
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/.exec(raw);
+  if (!match) {
+    throw new Error('Data URL inválida.');
+  }
+  const mime = match[1] || 'image/png';
+  const base64 = match[2] || '';
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
 function normalizarNombreEntidad(valor) {
   return String(valor || '').trim().replace(/\s+/g, ' ');
 }
@@ -329,8 +345,7 @@ async function resolverBlobImagen(fuente) {
   }
 
   if (esDataUrlImagen(fuente)) {
-    const respuesta = await fetch(fuente);
-    return respuesta.blob();
+    return blobDesdeDataUrlImagen(fuente);
   }
 
   throw new Error('Formato de imagen no válido para subir a Storage.');
@@ -646,7 +661,11 @@ export async function crearParteTrabajo(payload) {
     ordenId: ordenIdTrabajo,
   });
 
-  const bloquesTareas = [resumenGeo || 'Parte registrado desde movilidad'];
+  const descripcionLibre = String(payload?.tareas_realizadas_libre || '').trim();
+  const bloquesTareas = [descripcionLibre || 'Parte registrado desde movilidad'];
+  if (resumenGeo) {
+    bloquesTareas.push(resumenGeo);
+  }
   bloquesTareas.push(`Firmado por: ${nombreFirmante}`);
   if (fotosIntervencionUrls.length > 0) {
     bloquesTareas.push(`Fotos intervención: ${fotosIntervencionUrls.join(' | ')}`);

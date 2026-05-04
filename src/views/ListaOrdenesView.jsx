@@ -88,6 +88,43 @@ function detectarFueraHorario(inicioIso, finIso) {
   return esFueraHorarioLaboral(inicioIso) || esFueraHorarioLaboral(finIso);
 }
 
+function isoADatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const yyyy = String(d.getFullYear());
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function datetimeLocalAIso(valor) {
+  const v = String(valor || '').trim();
+  if (!v) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(v);
+  if (!m) return null;
+  const yyyy = Number(m[1]);
+  const mm = Number(m[2]);
+  const dd = Number(m[3]);
+  const hh = Number(m[4]);
+  const mi = Number(m[5]);
+  const d = new Date(yyyy, mm - 1, dd, hh, mi, 0, 0);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function horasManoObraDesdeIntervencionDatetimeLocal(inicioDatetimeLocal, finDatetimeLocal) {
+  const inicioIso = datetimeLocalAIso(inicioDatetimeLocal);
+  const finIso = datetimeLocalAIso(finDatetimeLocal);
+  if (!inicioIso || !finIso) return null;
+  const ms = new Date(finIso).getTime() - new Date(inicioIso).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const minutos = Math.max(1, Math.ceil(ms / 60000));
+  const horas = minutos < 60 ? 1 : Number((minutos / 60).toFixed(2));
+  return horas.toFixed(2);
+}
+
 function columnaExcel(indice) {
   let n = indice;
   let resultado = '';
@@ -692,9 +729,10 @@ function BloqueEditarParteCompleto({ orden, accionEnCurso, onEditarParteCompleto
     evento.preventDefault();
     setMensaje('');
     try {
+      const tareasLibreTrim = String(tareasLibre || '').trim();
       await onEditarParteCompleto(orden.id, {
         descripcion_averia: descripcionAveria,
-        tareas_realizadas_libre: tareasLibre,
+        ...(tareasLibreTrim ? { tareas_realizadas_libre: tareasLibreTrim } : {}),
         materiales: materiales.map((m) => ({
           nombre_material: m.nombre_material,
           cantidad: m.cantidad,
@@ -910,6 +948,7 @@ function TarjetaOrden({
   const [mensajeValoracion, setMensajeValoracion] = useState('');
   const [mensajeEliminacion, setMensajeEliminacion] = useState('');
   const [descargandoInforme, setDescargandoInforme] = useState(false);
+  const [horasManoObraEditadas, setHorasManoObraEditadas] = useState(false);
   const aplicaRecargoFestivoPorDefecto = typeof orden.aplicaRecargoFestivo === 'boolean'
     ? orden.aplicaRecargoFestivo
     : esFinDeSemana(orden.fechaInicioIso);
@@ -925,6 +964,8 @@ function TarjetaOrden({
     coste_materiales_editable: Number(orden.costeMaterialesEditable || orden.costeMateriales || 0).toFixed(2),
     tarifa_mano_obra_hora: Number(orden.tarifaManoObraHora || 0).toFixed(2),
     horas_mano_obra: Number(orden.horasManoObra || 0).toFixed(2),
+    fecha_inicio: isoADatetimeLocal(orden.fechaInicioIso),
+    fecha_fin: isoADatetimeLocal(orden.fechaFinIso),
     tarifa_desplazamiento_km: Number(orden.tarifaDesplazamientoKm || 0).toFixed(2),
     km_desplazamiento_facturables: Number(orden.kmDesplazamientoFacturables || 0).toFixed(2),
     recargo_festivo_pct: Number(orden.recargoFestivoPct ?? 25).toFixed(2),
@@ -942,6 +983,7 @@ function TarjetaOrden({
   }, [orden.estado, orden.prioridad, orden.tecnicoId]);
 
   useEffect(() => {
+    setHorasManoObraEditadas(false);
     const siguienteAplicaRecargoFestivo = typeof orden.aplicaRecargoFestivo === 'boolean'
       ? orden.aplicaRecargoFestivo
       : esFinDeSemana(orden.fechaInicioIso);
@@ -953,6 +995,8 @@ function TarjetaOrden({
       coste_materiales_editable: Number(orden.costeMaterialesEditable || orden.costeMateriales || 0).toFixed(2),
       tarifa_mano_obra_hora: Number(orden.tarifaManoObraHora || 0).toFixed(2),
       horas_mano_obra: Number(orden.horasManoObra || 0).toFixed(2),
+      fecha_inicio: isoADatetimeLocal(orden.fechaInicioIso),
+      fecha_fin: isoADatetimeLocal(orden.fechaFinIso),
       tarifa_desplazamiento_km: Number(orden.tarifaDesplazamientoKm || 0).toFixed(2),
       km_desplazamiento_facturables: Number(orden.kmDesplazamientoFacturables || 0).toFixed(2),
       recargo_festivo_pct: Number(orden.recargoFestivoPct ?? 25).toFixed(2),
@@ -1003,7 +1047,27 @@ function TarjetaOrden({
     setMensajeValoracion('');
 
     try {
-      await onValorarFinalizada(orden.id, formularioValoracion);
+      const inicio = String(formularioValoracion.fecha_inicio || '').trim();
+      const fin = String(formularioValoracion.fecha_fin || '').trim();
+      if ((inicio && !fin) || (!inicio && fin)) {
+        setMensajeValoracion('Debes indicar inicio y fin de intervención.');
+        return;
+      }
+      const payload = { ...formularioValoracion };
+      if (!horasManoObraEditadas) {
+        delete payload.horas_mano_obra;
+      }
+      if (inicio && fin) {
+        const iniIso = datetimeLocalAIso(inicio);
+        const finIso = datetimeLocalAIso(fin);
+        if (!iniIso || !finIso) {
+          setMensajeValoracion('El formato de fecha/hora de intervención no es válido.');
+          return;
+        }
+        payload.fecha_inicio = iniIso;
+        payload.fecha_fin = finIso;
+      }
+      await onValorarFinalizada(orden.id, payload);
       setMostrarValoracion(false);
       setMensajeValoracion('Valoración guardada e informe regenerado correctamente.');
       onNotificar({
@@ -1210,10 +1274,58 @@ function TarjetaOrden({
                       min="0"
                       step="0.01"
                       value={formularioValoracion.horas_mano_obra}
-                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, horas_mano_obra: evento.target.value }))}
+                      onChange={(evento) => {
+                        setHorasManoObraEditadas(true);
+                        setFormularioValoracion((previo) => ({ ...previo, horas_mano_obra: evento.target.value }));
+                      }}
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                   </label>
+
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-semibold text-slate-700">Inicio intervención</span>
+                      <input
+                        type="datetime-local"
+                        value={formularioValoracion.fecha_inicio}
+                        onChange={(evento) =>
+                          setFormularioValoracion((previo) => {
+                            const siguiente = { ...previo, fecha_inicio: evento.target.value };
+                            const horas = horasManoObraDesdeIntervencionDatetimeLocal(
+                              siguiente.fecha_inicio,
+                              siguiente.fecha_fin,
+                            );
+                            if (horas != null) {
+                              siguiente.horas_mano_obra = horas;
+                            }
+                            return siguiente;
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-semibold text-slate-700">Fin intervención</span>
+                      <input
+                        type="datetime-local"
+                        value={formularioValoracion.fecha_fin}
+                        onChange={(evento) =>
+                          setFormularioValoracion((previo) => {
+                            const siguiente = { ...previo, fecha_fin: evento.target.value };
+                            const horas = horasManoObraDesdeIntervencionDatetimeLocal(
+                              siguiente.fecha_inicio,
+                              siguiente.fecha_fin,
+                            );
+                            if (horas != null) {
+                              siguiente.horas_mano_obra = horas;
+                            }
+                            return siguiente;
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                  </div>
 
                   <label className="block">
                     <span className="mb-1 block text-xs font-semibold text-slate-700">Tarifa desplazamiento (€/km)</span>

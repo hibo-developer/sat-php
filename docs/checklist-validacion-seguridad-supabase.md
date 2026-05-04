@@ -13,10 +13,7 @@ Usar despues de ejecutar [supabase/13_apply_and_verify_security.sql](../supabase
 
 - [ ] Authentication > Settings > Leaked Password Protection: activado.
 - [ ] Si no esta disponible por plan (p. ej. Free), registrar excepcion de riesgo y aplicar mitigaciones:
-	- Politica de contrasena robusta (longitud minima y complejidad).
-	- Revisar y desactivar cuentas inactivas periodicamente.
-	- Rotacion de contrasenas para usuarios operativos cuando proceda.
-	- Monitoreo de intentos fallidos y respuesta ante incidentes.
+	- Seguir [docs/checklist-auth-produccion-plan-free.md](checklist-auth-produccion-plan-free.md).
 - [ ] Authentication > Providers: confirmar que no hay acceso anonimo habilitado para el entorno productivo.
 
 ## 3. Prueba funcional corta por rol

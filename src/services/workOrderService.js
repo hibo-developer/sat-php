@@ -115,6 +115,22 @@ function resolverValoracionNumerica(payloadValor, valorActual, etiqueta) {
   return 0;
 }
 
+function vieneNumeroEnPayload(payloadValor) {
+  return payloadValor !== undefined && payloadValor !== null && String(payloadValor).trim() !== '';
+}
+
+function validarIsoDateTime(valor, etiqueta) {
+  const texto = limpiarTexto(valor);
+  if (!texto) {
+    return null;
+  }
+  const fecha = new Date(texto);
+  if (Number.isNaN(fecha.getTime())) {
+    throw new Error(`${etiqueta} no tiene un formato válido.`);
+  }
+  return fecha.toISOString();
+}
+
 function resolverHorasManoObraPorDefecto(minutosContador) {
   const minutos = Number.parseFloat(String(minutosContador ?? '').replace(',', '.'));
   if (!Number.isFinite(minutos) || minutos <= 0) {
@@ -122,6 +138,15 @@ function resolverHorasManoObraPorDefecto(minutosContador) {
   }
 
   return minutos < 60 ? 1 : Number((minutos / 60).toFixed(2));
+}
+
+function resolverMinutosDesdeRangoIso(inicioIso, finIso) {
+  if (!inicioIso || !finIso) return null;
+  const iniMs = new Date(inicioIso).getTime();
+  const finMs = new Date(finIso).getTime();
+  const dif = finMs - iniMs;
+  if (!Number.isFinite(dif) || dif <= 0) return null;
+  return Math.max(1, Math.ceil(dif / 60000));
 }
 
 function resolverValoracionBooleana(payloadValor, valorActual = false) {
@@ -710,6 +735,24 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
   const costeMaterialesCalculado = (Array.isArray(ordenActual.materiales_orden) ? ordenActual.materiales_orden : [])
     .reduce((acc, item) => acc + (Number(item.cantidad || 0) * Number(item.precio_unitario || 0)), 0);
 
+  const fechaInicioIso = payload.fecha_inicio !== undefined
+    ? validarIsoDateTime(payload.fecha_inicio, 'Inicio intervención')
+    : (ordenActual.fecha_inicio || null);
+  const fechaFinIso = payload.fecha_fin !== undefined
+    ? validarIsoDateTime(payload.fecha_fin, 'Fin intervención')
+    : (ordenActual.fecha_fin || null);
+
+  if ((fechaInicioIso && !fechaFinIso) || (!fechaInicioIso && fechaFinIso)) {
+    throw new Error('Debes indicar inicio y fin de intervención.');
+  }
+  if (fechaInicioIso && fechaFinIso) {
+    const iniMs = new Date(fechaInicioIso).getTime();
+    const finMs = new Date(fechaFinIso).getTime();
+    if (!Number.isFinite(iniMs) || !Number.isFinite(finMs) || finMs < iniMs) {
+      throw new Error('La fecha/hora de fin de intervención debe ser posterior al inicio.');
+    }
+  }
+
   const costeMaterialesEditable = resolverValoracionNumerica(
     payload.coste_materiales_editable,
     ordenActual.coste_materiales_editable ?? costeMaterialesCalculado,
@@ -720,9 +763,23 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
     ordenActual.tarifa_mano_obra_hora ?? 50,
     'Tarifa mano de obra (€/h)',
   );
-  const horasManoObraFallback = Number.isFinite(Number(ordenActual.horas_mano_obra))
-    ? Number(ordenActual.horas_mano_obra)
-    : resolverHorasManoObraPorDefecto(ordenActual.tiempo_empleado_minutos);
+  const tiempoEmpleadoMinutos = payload.tiempo_empleado_minutos !== undefined
+    ? validarMinutos(payload.tiempo_empleado_minutos, 'Tiempo empleado (min)')
+    : ordenActual.tiempo_empleado_minutos;
+  const minutosDesdeFechas = payload.fecha_inicio !== undefined && payload.fecha_fin !== undefined
+    ? resolverMinutosDesdeRangoIso(fechaInicioIso, fechaFinIso)
+    : null;
+  const horasDesdeFechas = minutosDesdeFechas != null ? resolverHorasManoObraPorDefecto(minutosDesdeFechas) : null;
+  const horasDesdeMinutos = resolverHorasManoObraPorDefecto(tiempoEmpleadoMinutos);
+  const horasManoObraFallback = !vieneNumeroEnPayload(payload.horas_mano_obra)
+    ? (horasDesdeFechas ?? (payload.tiempo_empleado_minutos !== undefined ? horasDesdeMinutos : (
+      Number.isFinite(Number(ordenActual.horas_mano_obra))
+        ? Number(ordenActual.horas_mano_obra)
+        : horasDesdeMinutos
+    )))
+    : (Number.isFinite(Number(ordenActual.horas_mano_obra))
+      ? Number(ordenActual.horas_mano_obra)
+      : horasDesdeMinutos);
   const horasManoObra = resolverValoracionNumerica(
     payload.horas_mano_obra,
     horasManoObraFallback,
@@ -750,12 +807,12 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
   );
   const aplicaRecargoFestivo = resolverValoracionBooleana(
     payload.aplica_recargo_festivo,
-    ordenActual.aplica_recargo_festivo ?? esFinDeSemanaPorIso(ordenActual.fecha_inicio),
+    ordenActual.aplica_recargo_festivo ?? esFinDeSemanaPorIso(fechaInicioIso),
   );
   const aplicaRecargoFueraHorario = resolverValoracionBooleana(
     payload.aplica_recargo_fuera_horario,
     ordenActual.aplica_recargo_fuera_horario
-      ?? calcularRecargoFueraHorario(ordenActual.fecha_inicio, ordenActual.fecha_fin),
+      ?? calcularRecargoFueraHorario(fechaInicioIso, fechaFinIso),
   );
   const porcentajeRecargoManoObra = (aplicaRecargoFestivo ? recargoFestivoPct : 0)
     + (aplicaRecargoFueraHorario ? recargoFueraHorarioPct : 0);
@@ -767,6 +824,9 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
   const { error: updateError } = await supabase
     .from('ordenes_trabajo')
     .update({
+      ...(payload.tiempo_empleado_minutos !== undefined ? { tiempo_empleado_minutos: tiempoEmpleadoMinutos } : {}),
+      ...(fechaInicioIso ? { fecha_inicio: fechaInicioIso } : {}),
+      ...(fechaFinIso ? { fecha_fin: fechaFinIso } : {}),
       coste_materiales_editable: costeMaterialesEditable,
       tarifa_mano_obra_hora: tarifaManoObraHora,
       horas_mano_obra: horasManoObra,
@@ -788,7 +848,8 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
 
   const materialesTexto = materialesOrdenATexto(ordenActual.materiales_orden);
   const fasesParseadas = extraerFasesDesdeTareas(ordenActual.tareas_realizadas);
-  const inicioInterv = fasesParseadas.intervension?.inicioIso || ordenActual.fecha_inicio;
+  const inicioInterv = fechaInicioIso || fasesParseadas.intervension?.inicioIso || ordenActual.fecha_inicio;
+  const finInterv = fechaFinIso || fasesParseadas.intervension?.finIso || ordenActual.fecha_fin;
   const desplazamiento = {
     inicioIso: fasesParseadas.desplazamiento?.inicioIso || ordenActual.fecha_inicio,
     finIso: fasesParseadas.desplazamiento?.finIso || inicioInterv,
@@ -798,18 +859,23 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
   };
   const intervensionRecuperada = {
     inicioIso: inicioInterv,
-    finIso: fasesParseadas.intervension?.finIso || ordenActual.fecha_fin,
+    finIso: finInterv,
     pausasComida: fasesParseadas.intervension?.pausasComida || [],
   };
 
   const informe = await generarYSubirInformeParte({
-    parte: { id: ordenActual.id },
+    parte: {
+      id: ordenActual.id,
+      tareas_realizadas: ordenActual.tareas_realizadas || '',
+      descripcion_averia: ordenActual.descripcion_averia || null,
+      prioridad: ordenActual.prioridad || null,
+    },
     formulario: {
       cliente_id: ordenActual.cliente_id,
       tecnico_id: ordenActual.tecnico_id,
       orden_id: ordenActual.id,
       prioridad: ordenActual.prioridad || 'media',
-      tiempo_empleado: String(ordenActual.tiempo_empleado_minutos || 0),
+      tiempo_empleado: String(tiempoEmpleadoMinutos || 0),
       descripcion_problema: ordenActual.descripcion_averia || 'Sin descripción',
       materialesTexto,
     },
@@ -1107,7 +1173,12 @@ export async function editarParteFinalizado(ordenId, payload) {
   };
 
   const informe = await generarYSubirInformeParte({
-    parte: { id: ordenActual.id },
+    parte: {
+      id: ordenActual.id,
+      tareas_realizadas: nuevasTareasRealizadas || '',
+      descripcion_averia: descripcionAveria || null,
+      prioridad: ordenActual.prioridad || null,
+    },
     formulario: {
       cliente_id: ordenActual.cliente_id,
       tecnico_id: ordenActual.tecnico_id,

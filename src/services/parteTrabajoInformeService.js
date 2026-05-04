@@ -131,6 +131,13 @@ function materialesDesdeTexto(texto) {
     });
 }
 
+function totalMaterialesDesdeLista(materiales) {
+  return (Array.isArray(materiales) ? materiales : []).reduce(
+    (acc, m) => acc + (Number.isFinite(m?.importe) ? m.importe : 0),
+    0,
+  );
+}
+
 async function urlADataUrl(url) {
   try {
     const r = await fetch(url);
@@ -266,8 +273,6 @@ function limpiarTextoTrabajosRealizados(tareasRealizadas) {
   }
 
   const PATRONES_TECNICOS = [
-    /^Desplazamiento\b/i,
-    /^Intervenci[oó]n\b/i,
     /^Parte registrado desde movilidad\b/i,
     /^Inicio:/i,
     /^Fin:/i,
@@ -286,8 +291,19 @@ function limpiarTextoTrabajosRealizados(tareasRealizadas) {
   ];
 
   const fragmentos = texto
-    .split('|')
+    .split(/[\n|]/)
     .map((parte) => parte.trim())
+    .filter(Boolean)
+    .map((parte) => {
+      if (/^(Desplazamiento|Intervenci[oó]n)\b/i.test(parte)) {
+        const separador = parte.search(/[:\-]/);
+        if (separador !== -1) {
+          return parte.slice(separador + 1).trim();
+        }
+        return '';
+      }
+      return parte;
+    })
     .filter(Boolean)
     .filter((parte) => !PATRONES_TECNICOS.some((re) => re.test(parte)));
 
@@ -465,7 +481,7 @@ function dibujarTablaMateriales(doc, estado, materiales) {
   estado.y += altoCab + materiales.length * altoFila + altoTotal + 5;
 }
 
-function dibujarValoracionEconomica(doc, estado, val) {
+function dibujarValoracionEconomica(doc, estado, val, totalMaterialesFallback = 0) {
   if (!val) return;
   const aplicaFest = Boolean(val.aplicaRecargoFestivo);
   const aplicaFuera = Boolean(val.aplicaRecargoFueraHorario);
@@ -477,8 +493,13 @@ function dibujarValoracionEconomica(doc, estado, val) {
   const moTotal = num(val.costeManoObraTotal) ?? (moBase * (1 + pctRecargoMO / 100));
   const desplTotal = num(val.costeDesplazamientoTotal)
     ?? (Number(val.tarifaDesplazamientoKm || 0) * Number(val.kmDesplazamientoFacturables || 0));
-  const materiales = num(val.costeMaterialesEditable) ?? 0;
-  const totalGeneral = num(val.costeTotal) ?? (materiales + moTotal + desplTotal);
+  const materiales = num(val.costeMaterialesEditable);
+  const materialesFinal = materiales != null ? materiales : Number(totalMaterialesFallback || 0);
+  const totalCalculado = materialesFinal + moTotal + desplTotal;
+  const totalGuardado = num(val.costeTotal);
+  const totalGeneral = totalGuardado != null && Math.abs(totalGuardado - totalCalculado) < 0.02
+    ? totalGuardado
+    : totalCalculado;
 
   const x = PAGINA.margenX;
   const w = PAGINA.contenido;
@@ -488,7 +509,7 @@ function dibujarValoracionEconomica(doc, estado, val) {
   const altoFila = 6.5;
 
   const filas = [
-    ['Materiales', '', materiales],
+    ['Materiales', '', materialesFinal],
     ['Mano de obra', `${num(val.horasManoObra) ?? 0} h × ${eur(val.tarifaManoObraHora)}`, moBase],
   ];
   if (pctRecargoMO > 0) {
@@ -713,7 +734,12 @@ function dibujarBloqueLegal(doc, estado) {
 // Construcción de datos
 // =====================================================================
 
-function construirFilasControlTiempos({ desplazamiento, intervension, seguimientoTiempo }) {
+function construirFilasControlTiempos({
+  desplazamiento,
+  intervension,
+  seguimientoTiempo,
+  mostrarInicioFinDesplazamiento = true,
+}) {
   const filas = [];
   const desp = desplazamiento || {};
   const inter = intervension || {};
@@ -733,8 +759,10 @@ function construirFilasControlTiempos({ desplazamiento, intervension, seguimient
   const lugarInt = inter.ubicacionInicio?.nombreLugarCompleto || inter.ubicacionInicio?.nombreLugar;
 
   // Desplazamiento
-  if (inicioDesp) filas.push(['Inicio desplazamiento', formatearFechaCorta(inicioDesp)]);
-  if (finDesp) filas.push(['Fin desplazamiento', formatearFechaCorta(finDesp)]);
+  if (mostrarInicioFinDesplazamiento) {
+    if (inicioDesp) filas.push(['Inicio desplazamiento', formatearFechaCorta(inicioDesp)]);
+    if (finDesp) filas.push(['Fin desplazamiento', formatearFechaCorta(finDesp)]);
+  }
   if (lugarFinDesp) filas.push(['Lugar destino', lugarFinDesp]);
   if (km != null) filas.push(['Distancia recorrida', `${km} km`]);
 
@@ -817,9 +845,6 @@ async function crearPdfInforme({
   ]);
 
   // ==== Identificación del parte ====
-  const tiempoMin = parte?.tiempo_empleado_minutos != null
-    ? String(parte.tiempo_empleado_minutos)
-    : String(formulario?.tiempo_empleado || '');
   const prioridad = txt(parte?.prioridad || formulario?.prioridad).toUpperCase();
   const descripcion = parte?.descripcion_averia || formulario?.descripcion_problema || '';
 
@@ -828,7 +853,6 @@ async function crearPdfInforme({
     ['Nº de informe', referencia],
     ['Fecha de emisión', metaInforme.fechaEmision],
     ['Prioridad', prioridad],
-    ['Tiempo empleado', tiempoMin ? `${tiempoMin} min` : '—'],
   ]);
 
   // ==== Descripción de la avería ====
@@ -840,13 +864,20 @@ async function crearPdfInforme({
   // que conviven en `tareas_realizadas` con el texto descriptivo del tecnico
   // o con el texto libre que el admin haya introducido al editar el parte.
   const trabajosTexto = limpiarTextoTrabajosRealizados(parte?.tareas_realizadas);
-  if (trabajosTexto) {
-    dibujarTituloSeccion(doc, estado, 'Trabajos realizados');
-    dibujarParrafo(doc, estado, trabajosTexto);
-  }
+  dibujarTituloSeccion(doc, estado, 'Trabajos realizados');
+  dibujarParrafo(
+    doc,
+    estado,
+    trabajosTexto || (parte?.tareas_realizadas ? 'Sin descripción adicional.' : 'Sin trabajos registrados.'),
+  );
 
   // ==== Control de tiempos ====
-  const filasTiempo = construirFilasControlTiempos({ desplazamiento, intervension, seguimientoTiempo });
+  const filasTiempo = construirFilasControlTiempos({
+    desplazamiento,
+    intervension,
+    seguimientoTiempo,
+    mostrarInicioFinDesplazamiento: false,
+  });
   if (filasTiempo.length) {
     dibujarTituloSeccion(doc, estado, 'Control de tiempos y geolocalización');
     dibujarTablaInfo(doc, estado, filasTiempo);
@@ -854,13 +885,14 @@ async function crearPdfInforme({
 
   // ==== Materiales ====
   const materiales = materialesDesdeTexto(formulario?.materialesTexto || '');
+  const totalMaterialesCalc = totalMaterialesDesdeLista(materiales);
   dibujarTituloSeccion(doc, estado, 'Materiales utilizados');
   dibujarTablaMateriales(doc, estado, materiales);
 
   // ==== Valoración económica ====
   if (valoracionEconomica) {
     dibujarTituloSeccion(doc, estado, 'Valoración económica');
-    dibujarValoracionEconomica(doc, estado, valoracionEconomica);
+    dibujarValoracionEconomica(doc, estado, valoracionEconomica, totalMaterialesCalc);
   }
 
   // ==== Evidencias fotográficas ====
@@ -900,7 +932,7 @@ async function subirPdfInforme({ pdfBlob, nombreArchivo, clienteId, tecnicoId, o
   const ruta = `${clienteId}/${tecnicoId}/${ordenId}/${nombreArchivo}`;
   const { error } = await supabase.storage
     .from('informes-partes')
-    .upload(ruta, pdfBlob, { upsert: false, contentType: 'application/pdf', cacheControl: '0' });
+    .upload(ruta, pdfBlob, { upsert: true, contentType: 'application/pdf', cacheControl: '0' });
   if (error) {
     throw new Error(`No se pudo subir el PDF a Storage: ${error.message}`);
   }

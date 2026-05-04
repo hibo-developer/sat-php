@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { NavbarInferior } from './components/NavbarInferior';
 import { IndicadorSync } from './components/IndicadorSync';
 import { CambiarPasswordModal } from './components/CambiarPasswordModal';
+import { MfaModal } from './components/MfaModal';
 import { useAuthSession } from './hooks/useAuthSession';
 import { precargarCatalogosOffline } from './services/catalogosService';
 import { estaOnline } from './services/offlineSyncService';
@@ -93,9 +94,19 @@ export default function App() {
   const [nombreVisibleUsuario, setNombreVisibleUsuario] = useState('');
   const [verificandoRol, setVerificandoRol] = useState(false);
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(false);
+  const [mostrarMfa, setMostrarMfa] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { sesion, cargando, error, login, logout } = useAuthSession();
+  const {
+    sesion,
+    mfaPendiente,
+    cargando,
+    error,
+    login,
+    verificarMfa,
+    cancelarMfa,
+    logout,
+  } = useAuthSession();
   const requiereLogin = tieneConfiguracionSupabase();
   const accesoBloqueado = requiereLogin && !sesion;
   const esAdmin = rolUsuario === 'admin';
@@ -171,6 +182,7 @@ export default function App() {
       cancelado = true;
     };
   }, [requiereLogin, sesion?.user?.id]);
+
 
   useEffect(() => {
     if (!accesoBloqueado && !verificandoRol && vistaActiva === 'admin' && !esAdmin) {
@@ -271,6 +283,13 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setMostrarMfa(true)}
+                  className="rounded-xl border border-marca-100 bg-white px-3 py-2 text-xs font-bold text-marca-700"
+                >
+                  2FA
+                </button>
+                <button
+                  type="button"
                   onClick={() => logout()}
                   className="rounded-xl border border-marca-100 bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
                 >
@@ -326,7 +345,14 @@ export default function App() {
           </div>
         )}
         {accesoBloqueado ? (
-          <AccesoView onLogin={login} cargandoSesion={cargando} errorSesion={error} />
+          <AccesoView
+            onLogin={login}
+            onVerificarMfa={verificarMfa}
+            onCancelarMfa={cancelarMfa}
+            mfaPendiente={mfaPendiente}
+            cargandoSesion={cargando}
+            errorSesion={error}
+          />
         ) : (
           <Routes>
             <Route path="/" element={<Navigate to="/ordenes" replace />} />
@@ -359,6 +385,11 @@ export default function App() {
       <CambiarPasswordModal
         abierto={mostrarCambiarPassword}
         onCerrar={() => setMostrarCambiarPassword(false)}
+      />
+
+      <MfaModal
+        abierto={mostrarMfa}
+        onCerrar={() => setMostrarMfa(false)}
       />
     </div>
   );
