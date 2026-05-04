@@ -302,12 +302,15 @@ function limpiarTextoTrabajosRealizados(tareasRealizadas) {
         }
         return '';
       }
-      return parte;
+      return parte
+        .replace(/\bsb:\/\/[^\s]+/gi, '')
+        .replace(/https?:\/\/[^\s]+/gi, '')
+        .trim();
     })
     .filter(Boolean)
     .filter((parte) => !PATRONES_TECNICOS.some((re) => re.test(parte)));
 
-  return fragmentos.join(' ').trim();
+  return fragmentos.join(' ').replace(/\s{2,}/g, ' ').trim();
 }
 
 function dibujarTarjetasResumen(doc, estado, datos) {
