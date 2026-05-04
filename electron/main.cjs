@@ -3,6 +3,23 @@ const fs = require('fs');
 const path = require('path');
 
 const isDev = !app.isPackaged;
+const logPath = path.join(app.getPath('userData'), 'desktop.log');
+
+function logLinea(...partes) {
+  try {
+    const texto = partes
+      .map((p) => {
+        if (p instanceof Error) return p.stack || p.message;
+        if (typeof p === 'string') return p;
+        return JSON.stringify(p);
+      })
+      .join(' ');
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${texto}\n`);
+  } catch {}
+}
+
+process.on('uncaughtException', (err) => logLinea('uncaughtException', err));
+process.on('unhandledRejection', (err) => logLinea('unhandledRejection', err));
 
 function resolveWindowIconPath() {
   const candidates = [
@@ -16,6 +33,7 @@ function resolveWindowIconPath() {
 
 function createWindow() {
   const iconPath = resolveWindowIconPath();
+  logLinea('createWindow', { isDev, resourcesPath: process.resourcesPath, __dirname, iconPath });
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -27,8 +45,16 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
     },
+  });
+
+  win.webContents.on('did-fail-load', (_ev, code, desc, url) => {
+    logLinea('did-fail-load', { code, desc, url });
+  });
+
+  win.webContents.on('render-process-gone', (_ev, details) => {
+    logLinea('render-process-gone', details);
   });
 
   if (isDev) {
@@ -37,11 +63,14 @@ function createWindow() {
     return;
   }
 
-  win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
+  logLinea('loadFile', { indexPath, exists: fs.existsSync(indexPath) });
+  win.loadFile(indexPath);
 }
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.cotepa.sat.desktop');
+  logLinea('app-ready', { version: app.getVersion(), electron: process.versions.electron });
   createWindow();
 
   app.on('activate', () => {
