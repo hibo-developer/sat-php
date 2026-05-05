@@ -91,9 +91,9 @@ function crearReferenciaInforme(fechaIso, secuencial) {
   const ahora = Number.isFinite(f.getTime()) ? f : new Date();
   const dd = String(ahora.getDate()).padStart(2, '0');
   const mm = String(ahora.getMonth() + 1).padStart(2, '0');
-  const yyyy = ahora.getFullYear();
+  const yy = String(ahora.getFullYear()).slice(-2);
   const seq = String(Number.isFinite(secuencial) ? secuencial : 1).padStart(2, '0');
-  return `SAT-${dd}-${mm}-${yyyy}/${seq}`;
+  return `SAT-${yy}${mm}${dd}/${seq}`;
 }
 
 function resolverMinutosFase(fase) {
