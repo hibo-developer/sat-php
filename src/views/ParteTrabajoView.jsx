@@ -200,48 +200,120 @@ const FORM_INICIAL = {
   prioridad: 'media',
 };
 
+const DESPLAZAMIENTO_INICIAL = {
+  inicioIso: null,
+  finIso: null,
+  ubicacionInicio: null,
+  ubicacionFin: null,
+  distanciaMetros: null,
+  minutosGeo: null,
+};
+
+const INTERVENSION_INICIAL = {
+  inicioIso: null,
+  finIso: null,
+  ubicacionInicio: null,
+  ubicacionFin: null,
+  distanciaMetros: null,
+  minutosGeo: null,
+  pausasComida: [],
+  pausaComidaActiva: null,
+};
+
+const SEGUIMIENTO_INICIAL = {
+  inicioIso: null,
+  finIso: null,
+  ubicacionInicio: null,
+  ubicacionFin: null,
+  distanciaMetros: null,
+  minutosGeo: null,
+};
+
+const CACHE_KEY_PARTE_BORRADOR = 'sat_cache_parte_borrador_v1';
+const MAX_EDAD_BORRADOR_MS = 1000 * 60 * 60 * 24 * 7;
+
+function leerBorradorParte() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY_PARTE_BORRADOR);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.updatedAt && Date.now() - parsed.updatedAt > MAX_EDAD_BORRADOR_MS) {
+      localStorage.removeItem(CACHE_KEY_PARTE_BORRADOR);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function guardarBorradorParte(payload) {
+  try {
+    localStorage.setItem(CACHE_KEY_PARTE_BORRADOR, JSON.stringify({
+      ...payload,
+      updatedAt: Date.now(),
+    }));
+  } catch {}
+}
+
+function limpiarBorradorParte() {
+  try {
+    localStorage.removeItem(CACHE_KEY_PARTE_BORRADOR);
+  } catch {}
+}
+
 export function ParteTrabajoView() {
   const location = useLocation();
   const prefillAplicadoRef = useRef(false);
+  const borradorInicialRef = useRef();
+  if (borradorInicialRef.current === undefined) {
+    borradorInicialRef.current = location.state?.prefill ? null : leerBorradorParte();
+  }
+
   const [formulario, setFormulario] = useState(() => {
     const prefill = location.state?.prefill;
-    if (!prefill) return FORM_INICIAL;
+    if (prefill) {
+      return {
+        ...FORM_INICIAL,
+        orden_id: prefill.orden_id || '',
+        cliente_id: prefill.cliente_id || '',
+        equipo_id: prefill.equipo_id || '',
+        tecnico_id: prefill.tecnico_id || '',
+        descripcion_problema: prefill.descripcion_problema || '',
+        prioridad: prefill.prioridad || 'media',
+      };
+    }
+
+    const formularioCacheado = borradorInicialRef.current?.formulario;
+    if (!formularioCacheado || typeof formularioCacheado !== 'object') {
+      return FORM_INICIAL;
+    }
+
     return {
       ...FORM_INICIAL,
-      orden_id: prefill.orden_id || '',
-      cliente_id: prefill.cliente_id || '',
-      equipo_id: prefill.equipo_id || '',
-      tecnico_id: prefill.tecnico_id || '',
-      descripcion_problema: prefill.descripcion_problema || '',
-      prioridad: prefill.prioridad || 'media',
+      ...formularioCacheado,
     };
   });
-  const [desplazamiento, setDesplazamiento] = useState({
-    inicioIso: null,
-    finIso: null,
-    ubicacionInicio: null,
-    ubicacionFin: null,
-    distanciaMetros: null,
-    minutosGeo: null,
+
+  const [desplazamiento, setDesplazamiento] = useState(() => {
+    const prefill = location.state?.prefill;
+    if (prefill) return DESPLAZAMIENTO_INICIAL;
+    const cacheado = borradorInicialRef.current?.desplazamiento;
+    return cacheado && typeof cacheado === 'object' ? { ...DESPLAZAMIENTO_INICIAL, ...cacheado } : DESPLAZAMIENTO_INICIAL;
   });
-  const [intervension, setIntervension] = useState({
-    inicioIso: null,
-    finIso: null,
-    ubicacionInicio: null,
-    ubicacionFin: null,
-    distanciaMetros: null,
-    minutosGeo: null,
-    pausasComida: [],
-    pausaComidaActiva: null,
+
+  const [intervension, setIntervension] = useState(() => {
+    const prefill = location.state?.prefill;
+    if (prefill) return INTERVENSION_INICIAL;
+    const cacheado = borradorInicialRef.current?.intervension;
+    return cacheado && typeof cacheado === 'object' ? { ...INTERVENSION_INICIAL, ...cacheado } : INTERVENSION_INICIAL;
   });
   // Mantener para compatibilidad con lógica existente
-  const [seguimientoTiempo, setSeguimientoTiempo] = useState({
-    inicioIso: null,
-    finIso: null,
-    ubicacionInicio: null,
-    ubicacionFin: null,
-    distanciaMetros: null,
-    minutosGeo: null,
+  const [seguimientoTiempo, setSeguimientoTiempo] = useState(() => {
+    const prefill = location.state?.prefill;
+    if (prefill) return SEGUIMIENTO_INICIAL;
+    const cacheado = borradorInicialRef.current?.seguimientoTiempo;
+    return cacheado && typeof cacheado === 'object' ? { ...SEGUIMIENTO_INICIAL, ...cacheado } : SEGUIMIENTO_INICIAL;
   });
   const [clientes, setClientes] = useState([]);
   const [equipos, setEquipos] = useState([]);
@@ -250,7 +322,12 @@ export function ParteTrabajoView() {
   const [materialesInventario, setMaterialesInventario] = useState([]);
   const [materialSeleccionadoId, setMaterialSeleccionadoId] = useState('');
   const [materialSeleccionadoCantidad, setMaterialSeleccionadoCantidad] = useState('1');
-  const [materialesSeleccionados, setMaterialesSeleccionados] = useState([]);
+  const [materialesSeleccionados, setMaterialesSeleccionados] = useState(() => {
+    const prefill = location.state?.prefill;
+    if (prefill) return [];
+    const cacheado = borradorInicialRef.current?.materialesSeleccionados;
+    return Array.isArray(cacheado) ? cacheado : [];
+  });
   const [fotosIntervencion, setFotosIntervencion] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -258,12 +335,32 @@ export function ParteTrabajoView() {
   const [capturandoDesplazamiento, setCapturandoDesplazamiento] = useState(false);
   const [capturandoIntervension, setCapturandoIntervension] = useState(false);
   const [capturandoPausaComida, setCapturandoPausaComida] = useState(false);
-  const [pendienteGeoIntervension, setPendienteGeoIntervension] = useState(false);
+  const [pendienteGeoIntervension, setPendienteGeoIntervension] = useState(() => {
+    const prefill = location.state?.prefill;
+    if (prefill) return false;
+    return Boolean(borradorInicialRef.current?.pendienteGeoIntervension);
+  });
   const [firmaClienteDataUrl, setFirmaClienteDataUrl] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
   const canvasFirmaRef = useRef(null);
   const dibujandoFirmaRef = useRef(false);
+  const ignorarGuardadoBorradorRef = useRef(false);
+
+  useEffect(() => {
+    if (ignorarGuardadoBorradorRef.current) {
+      ignorarGuardadoBorradorRef.current = false;
+      return;
+    }
+    guardarBorradorParte({
+      formulario,
+      desplazamiento,
+      intervension,
+      seguimientoTiempo,
+      materialesSeleccionados,
+      pendienteGeoIntervension,
+    });
+  }, [desplazamiento, formulario, intervension, materialesSeleccionados, pendienteGeoIntervension, seguimientoTiempo]);
 
   useEffect(() => {
     async function cargarCatalogos() {
@@ -929,6 +1026,42 @@ export function ParteTrabajoView() {
     setFotosIntervencion((prev) => prev.filter((_, indice) => indice !== indiceObjetivo));
   }
 
+  function resetearFormulario() {
+    ignorarGuardadoBorradorRef.current = true;
+    setFormulario(FORM_INICIAL);
+    setDesplazamiento({
+      inicioIso: null, finIso: null, ubicacionInicio: null, ubicacionFin: null,
+      distanciaMetros: null, minutosGeo: null,
+    });
+    setIntervension({
+      inicioIso: null, finIso: null, ubicacionInicio: null, ubicacionFin: null,
+      distanciaMetros: null, minutosGeo: null, pausasComida: [], pausaComidaActiva: null,
+    });
+    setPendienteGeoIntervension(false);
+    setSeguimientoTiempo({
+      inicioIso: null, finIso: null, ubicacionInicio: null, ubicacionFin: null,
+      distanciaMetros: null, minutosGeo: null,
+    });
+    limpiarFirma();
+    setEquipos([]);
+    setOrdenesAbiertas([]);
+    setMaterialesSeleccionados([]);
+    setMaterialSeleccionadoId('');
+    setMaterialSeleccionadoCantidad('1');
+    setFotosIntervencion([]);
+    limpiarBorradorParte();
+  }
+
+  function eliminarParteBorrador() {
+    if (!window.confirm('¿Eliminar este parte sin guardar? Se perderán los datos registrados.')) {
+      return;
+    }
+    setMensaje('');
+    setError('');
+    resetearFormulario();
+    setMensaje('Parte eliminado.');
+  }
+
   async function enviarParte(evento) {
     evento.preventDefault();
     setMensaje('');
@@ -995,30 +1128,6 @@ export function ParteTrabajoView() {
       equipo_nombre: formulario.equipo_nombre,
       tecnico_id: formulario.tecnico_id || null,
     };
-
-    function resetearFormulario() {
-      setFormulario(FORM_INICIAL);
-      setDesplazamiento({
-        inicioIso: null, finIso: null, ubicacionInicio: null, ubicacionFin: null,
-        distanciaMetros: null, minutosGeo: null,
-      });
-      setIntervension({
-        inicioIso: null, finIso: null, ubicacionInicio: null, ubicacionFin: null,
-        distanciaMetros: null, minutosGeo: null, pausasComida: [], pausaComidaActiva: null,
-      });
-      setPendienteGeoIntervension(false);
-      setSeguimientoTiempo({
-        inicioIso: null, finIso: null, ubicacionInicio: null, ubicacionFin: null,
-        distanciaMetros: null, minutosGeo: null,
-      });
-      limpiarFirma();
-      setEquipos([]);
-      setOrdenesAbiertas([]);
-      setMaterialesSeleccionados([]);
-      setMaterialSeleccionadoId('');
-      setMaterialSeleccionadoCantidad('1');
-      setFotosIntervencion([]);
-    }
 
     async function encolarOffline(motivo) {
       await encolarParteFinalizado({
@@ -1160,6 +1269,17 @@ export function ParteTrabajoView() {
   const minutosIntervensionNetos = Number.isFinite(minutosIntervensionBrutos)
     ? Math.max(1, minutosIntervensionBrutos - minutosPausaComida)
     : null;
+  const puedeEliminarParteIncompletoSinOrden = !formulario.orden_id
+    && Boolean(intervension.inicioIso && intervension.finIso)
+    && (
+      !desplazamiento.inicioIso
+      || !desplazamiento.finIso
+      || !firmaClienteDataUrl
+      || !(formulario.nombre_firmante || '').trim()
+      || !formulario.tecnico_id
+      || (formulario.descripcion_problema || '').trim().length < 8
+      || (!formulario.cliente_id && !(formulario.cliente_nombre || '').trim())
+    );
 
   if (!tieneConfiguracionSupabase()) {
     return (
@@ -1603,6 +1723,17 @@ export function ParteTrabajoView() {
             Firma requerida para completar el parte.
           </p>
         </div>
+
+        {puedeEliminarParteIncompletoSinOrden && (
+          <button
+            type="button"
+            disabled={guardando || cargando}
+            onClick={eliminarParteBorrador}
+            className="w-full rounded-2xl border border-rose-300 bg-rose-50 px-4 py-4 text-sm font-bold text-rose-700 disabled:opacity-60 lg:col-span-2"
+          >
+            Eliminar parte
+          </button>
+        )}
 
         <button
           type="submit"

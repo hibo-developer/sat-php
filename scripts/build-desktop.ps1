@@ -12,6 +12,21 @@ $fallbackOutputDir = Join-Path $repoRoot "release-desktop-fallback"
 
 . (Join-Path $scriptDir "ensure-node-path.ps1")
 
+function Ensure-Dir([string]$path) {
+  if (-not (Test-Path $path)) {
+    New-Item -ItemType Directory -Path $path | Out-Null
+  }
+}
+
+$cacheRoot = Join-Path $repoRoot ".cache"
+$electronCache = Join-Path $cacheRoot "electron"
+$electronBuilderCache = Join-Path $cacheRoot "electron-builder"
+Ensure-Dir $cacheRoot
+Ensure-Dir $electronCache
+Ensure-Dir $electronBuilderCache
+$env:ELECTRON_CACHE = $electronCache
+$env:ELECTRON_BUILDER_CACHE = $electronBuilderCache
+
 function Remove-DirSafe([string]$path) {
   if (-not (Test-Path $path)) {
     return $true
@@ -22,8 +37,12 @@ function Remove-DirSafe([string]$path) {
     return $true
   }
   catch {
-    Write-Warning "No se pudo limpiar '$path': $($_.Exception.Message)"
-    return $false
+    $msg = $_.Exception.Message
+    Write-Warning "No se pudo limpiar '$path': $msg"
+    if ($msg -match 'Acceso denegado|being used by another process|en uso') {
+      return $false
+    }
+    return $true
   }
 }
 
@@ -88,6 +107,8 @@ try {
 
   Write-Host "[3/4] Limpiando salida previa en release-desktop..."
   $canUseDefaultOutput = $true
+  Get-ChildItem -Path $defaultOutputDir -Filter *.exe -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+  Get-ChildItem -Path $defaultOutputDir -Filter *.blockmap -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
   $defaultWinUnpacked = Join-Path $defaultOutputDir "win-unpacked"
   if (-not (Remove-DirSafe $defaultWinUnpacked)) {
     $canUseDefaultOutput = $false
@@ -97,6 +118,8 @@ try {
   Write-Host "[4/4] Empaquetando build Windows ($Target)..."
   $outputDir = if ($canUseDefaultOutput) { $defaultOutputDir } else { $fallbackOutputDir }
   if ($outputDir -eq $fallbackOutputDir) {
+    Get-ChildItem -Path $fallbackOutputDir -Filter *.exe -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $fallbackOutputDir -Filter *.blockmap -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Remove-DirSafe $fallbackOutputDir | Out-Null
   }
   Build-DesktopPortable $outputDir
