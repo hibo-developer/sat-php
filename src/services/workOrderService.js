@@ -381,6 +381,7 @@ export async function obtenerOrdenesTrabajo() {
       coste_materiales_editable,
       tarifa_mano_obra_hora,
       horas_mano_obra,
+      mecanicos_intervinieron,
       tarifa_desplazamiento_km,
       km_desplazamiento_facturables,
       recargo_festivo_pct,
@@ -718,6 +719,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
       coste_materiales_editable,
       tarifa_mano_obra_hora,
       horas_mano_obra,
+      mecanicos_intervinieron,
       tarifa_desplazamiento_km,
       km_desplazamiento_facturables,
       recargo_festivo_pct,
@@ -803,6 +805,12 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
     horasManoObraFallback,
     'Horas mano de obra',
   );
+  const mecanicosIntervinieronNumerico = resolverValoracionNumerica(
+    payload.mecanicos_intervinieron,
+    ordenActual.mecanicos_intervinieron ?? 1,
+    'Mecánicos intervinieron',
+  );
+  const mecanicosIntervinieron = Math.max(1, Math.round(mecanicosIntervinieronNumerico));
   const tarifaDesplazamientoKm = resolverValoracionNumerica(
     payload.tarifa_desplazamiento_km,
     ordenActual.tarifa_desplazamiento_km ?? 0.5,
@@ -834,7 +842,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
   );
   const porcentajeRecargoManoObra = (aplicaRecargoFestivo ? recargoFestivoPct : 0)
     + (aplicaRecargoFueraHorario ? recargoFueraHorarioPct : 0);
-  const costeManoObraBase = Number((tarifaManoObraHora * horasManoObra).toFixed(2));
+  const costeManoObraBase = Number((tarifaManoObraHora * horasManoObra * mecanicosIntervinieron).toFixed(2));
   const costeManoObraTotal = Number((costeManoObraBase * (1 + (porcentajeRecargoManoObra / 100))).toFixed(2));
   const costeDesplazamientoTotal = Number((tarifaDesplazamientoKm * kmDesplazamientoFacturables).toFixed(2));
   const costeTotal = Number((costeMaterialesEditable + costeManoObraTotal + costeDesplazamientoTotal).toFixed(2));
@@ -848,6 +856,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
       coste_materiales_editable: costeMaterialesEditable,
       tarifa_mano_obra_hora: tarifaManoObraHora,
       horas_mano_obra: horasManoObra,
+      mecanicos_intervinieron: mecanicosIntervinieron,
       tarifa_desplazamiento_km: tarifaDesplazamientoKm,
       km_desplazamiento_facturables: kmDesplazamientoFacturables,
       recargo_festivo_pct: recargoFestivoPct,
@@ -912,6 +921,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
       costeMaterialesEditable,
       tarifaManoObraHora,
       horasManoObra,
+      mecanicosIntervinieron,
       recargoFestivoPct,
       recargoFueraHorarioPct,
       aplicaRecargoFestivo,
@@ -933,6 +943,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
     costeMaterialesEditable,
     tarifaManoObraHora,
     horasManoObra,
+    mecanicosIntervinieron,
     tarifaDesplazamientoKm,
     kmDesplazamientoFacturables,
     recargoFestivoPct,

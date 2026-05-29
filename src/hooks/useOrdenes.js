@@ -105,6 +105,9 @@ function adaptarOrdenSupabase(orden) {
     horasManoObra: orden.horas_mano_obra != null && Number.isFinite(Number(orden.horas_mano_obra))
       ? Number(orden.horas_mano_obra)
       : horasManoObraCalculadas,
+    mecanicosIntervinieron: orden.mecanicos_intervinieron != null && Number.isFinite(Number(orden.mecanicos_intervinieron))
+      ? Math.max(1, Math.round(Number(orden.mecanicos_intervinieron)))
+      : 1,
     tarifaDesplazamientoKm: orden.tarifa_desplazamiento_km != null && Number.isFinite(Number(orden.tarifa_desplazamiento_km))
       ? Number(orden.tarifa_desplazamiento_km)
       : 0.5,

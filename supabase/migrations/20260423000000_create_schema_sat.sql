@@ -36,6 +36,7 @@ create table if not exists ordenes_trabajo (
   descripcion_averia text not null,
   tareas_realizadas text,
   tiempo_empleado_minutos integer,
+  mecanicos_intervinieron integer not null default 1 check (mecanicos_intervinieron >= 1),
   estado text default 'pendiente' check (estado in ('pendiente', 'en_proceso', 'pausado', 'finalizado')),
   prioridad text default 'media' check (prioridad in ('baja', 'media', 'alta', 'urgente')),
   foto_url text,

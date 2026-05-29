@@ -671,10 +671,17 @@ export async function crearParteTrabajo(payload) {
     bloquesTareas.push(`Fotos intervención: ${fotosIntervencionUrls.join(' | ')}`);
   }
 
+  const mecanicosIntervinieronRaw = payload?.mecanicos_intervinieron;
+  const mecanicosIntervinieron = Math.max(
+    1,
+    Number.parseInt(String(mecanicosIntervinieronRaw || '').trim() || '1', 10),
+  );
+
   const ordenPayload = {
     descripcion_averia: descripcionProblema,
     tareas_realizadas: bloquesTareas.join(' | '),
     tiempo_empleado_minutos: tiempoEmpleadoMinutos,
+    mecanicos_intervinieron: mecanicosIntervinieron,
     estado: 'finalizado',
     prioridad,
     foto_url: fotosIntervencionUrls[0] || null,

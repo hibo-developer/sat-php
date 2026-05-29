@@ -654,7 +654,11 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar, puedeCrearO
 function BloqueEditarParteCompleto({ orden, accionEnCurso, onEditarParteCompleto, onNotificar }) {
   const [abierto, setAbierto] = useState(false);
   const [descripcionAveria, setDescripcionAveria] = useState(orden.descripcion || '');
-  const [tareasLibre, setTareasLibre] = useState('');
+  const [tareasLibre, setTareasLibre] = useState(() => {
+    const texto = String(orden.tareasRealizadas || '');
+    const primerBloque = texto.split('|')[0] || '';
+    return primerBloque.trim();
+  });
   const [materiales, setMateriales] = useState(() =>
     (Array.isArray(orden.materiales) ? orden.materiales : []).map((m) => ({
       nombre_material: m.nombre_material || m.nombre || '',
@@ -673,7 +677,11 @@ function BloqueEditarParteCompleto({ orden, accionEnCurso, onEditarParteCompleto
   useEffect(() => {
     if (!abierto) return;
     setDescripcionAveria(orden.descripcion || '');
-    setTareasLibre('');
+    setTareasLibre(() => {
+      const texto = String(orden.tareasRealizadas || '');
+      const primerBloque = texto.split('|')[0] || '';
+      return primerBloque.trim();
+    });
     setMateriales(
       (Array.isArray(orden.materiales) ? orden.materiales : []).map((m) => ({
         nombre_material: m.nombre_material || m.nombre || '',
@@ -782,17 +790,16 @@ function BloqueEditarParteCompleto({ orden, accionEnCurso, onEditarParteCompleto
 
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-slate-700">
-              Tareas realizadas (texto libre, sustituye el resumen del parte)
+              Tareas realizadas
             </span>
             <textarea
               rows={3}
               value={tareasLibre}
               onChange={(e) => setTareasLibre(e.target.value)}
-              placeholder="Déjalo vacío para conservar el texto actual del parte."
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
             <span className="mt-1 block text-[10px] text-slate-500">
-              Solo se reemplaza si escribes algo. Los marcadores técnicos (firma, fotos…) se conservan.
+              Los marcadores técnicos (firma, fotos…) se conservan.
             </span>
           </label>
 
@@ -964,6 +971,7 @@ function TarjetaOrden({
     coste_materiales_editable: Number(orden.costeMaterialesEditable || orden.costeMateriales || 0).toFixed(2),
     tarifa_mano_obra_hora: Number(orden.tarifaManoObraHora || 0).toFixed(2),
     horas_mano_obra: Number(orden.horasManoObra || 0).toFixed(2),
+    mecanicos_intervinieron: String(orden.mecanicosIntervinieron ?? 1),
     fecha_inicio: isoADatetimeLocal(orden.fechaInicioIso),
     fecha_fin: isoADatetimeLocal(orden.fechaFinIso),
     tarifa_desplazamiento_km: Number(orden.tarifaDesplazamientoKm || 0).toFixed(2),
@@ -995,6 +1003,7 @@ function TarjetaOrden({
       coste_materiales_editable: Number(orden.costeMaterialesEditable || orden.costeMateriales || 0).toFixed(2),
       tarifa_mano_obra_hora: Number(orden.tarifaManoObraHora || 0).toFixed(2),
       horas_mano_obra: Number(orden.horasManoObra || 0).toFixed(2),
+      mecanicos_intervinieron: String(orden.mecanicosIntervinieron ?? 1),
       fecha_inicio: isoADatetimeLocal(orden.fechaInicioIso),
       fecha_fin: isoADatetimeLocal(orden.fechaFinIso),
       tarifa_desplazamiento_km: Number(orden.tarifaDesplazamientoKm || 0).toFixed(2),
@@ -1159,7 +1168,8 @@ function TarjetaOrden({
   }
 
   const costeManoObraBasePreview = Number(formularioValoracion.tarifa_mano_obra_hora || 0)
-    * Number(formularioValoracion.horas_mano_obra || 0);
+    * Number(formularioValoracion.horas_mano_obra || 0)
+    * Math.max(1, Number.parseInt(formularioValoracion.mecanicos_intervinieron || '1', 10) || 1);
   const porcentajeRecargoManoObraPreview = (formularioValoracion.aplica_recargo_festivo
     ? Number(formularioValoracion.recargo_festivo_pct || 0)
     : 0)
@@ -1278,6 +1288,18 @@ function TarjetaOrden({
                         setHorasManoObraEditadas(true);
                         setFormularioValoracion((previo) => ({ ...previo, horas_mano_obra: evento.target.value }));
                       }}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-700">Mecánicos</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formularioValoracion.mecanicos_intervinieron}
+                      onChange={(evento) => setFormularioValoracion((previo) => ({ ...previo, mecanicos_intervinieron: evento.target.value }))}
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                   </label>

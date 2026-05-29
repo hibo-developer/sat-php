@@ -197,6 +197,7 @@ const FORM_INICIAL = {
   tareas_realizadas_libre: '',
   materialesTexto: '',
   tiempo_empleado: '60',
+  mecanicos_intervinieron: '1',
   prioridad: 'media',
 };
 
@@ -1645,6 +1646,17 @@ export function ParteTrabajoView() {
           <p className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-600">
             Al guardar, el parte queda registrado y el administrador podrá generar el informe PDF definitivo desde el panel SAT tras completar la valoración económica.
           </p>
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-slate-700">Mecánicos en la intervención</span>
+          <input
+            min="1"
+            type="number"
+            value={formulario.mecanicos_intervinieron}
+            onChange={(e) => setFormulario((prev) => ({ ...prev, mecanicos_intervinieron: e.target.value }))}
+            className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+          />
         </label>
 
         <div className="rounded-xl border border-slate-300 bg-slate-50 p-3">

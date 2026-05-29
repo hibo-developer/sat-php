@@ -317,29 +317,37 @@ function limpiarTextoTrabajosRealizados(tareasRealizadas) {
     /^Fotos intervenci[oó]n:/i,
   ];
 
-  const fragmentos = texto
-    .split(/[\n|]/)
+  const bloques = texto
+    .split('|')
     .map((parte) => parte.trim())
-    .filter(Boolean)
-    .map((parte) => {
-      if (/^(Desplazamiento|Intervenci[oó]n)\b/i.test(parte)) {
-        const separador = parte.search(/[:\-]/);
-        if (separador !== -1) {
-          const resto = parte.slice(separador + 1).trim();
-          return esFragmentoLugar(resto) ? '' : resto;
-        }
-        return '';
-      }
-      return parte
-        .replace(/\bsb:\/\/[^\s]+/gi, '')
-        .replace(/https?:\/\/[^\s]+/gi, '')
-        .trim();
-    })
-    .filter(Boolean)
-    .filter((parte) => !PATRONES_TECNICOS.some((re) => re.test(parte)))
-    .filter((parte) => !esFragmentoLugar(parte));
+    .filter(Boolean);
 
-  return fragmentos.join(' ').replace(/\s{2,}/g, ' ').trim();
+  const lineas = [];
+
+  bloques.forEach((bloque) => {
+    const lineasBloque = String(bloque || '').split(/\r?\n/);
+    const limpias = lineasBloque
+      .map((linea) => String(linea || '').trim())
+      .map((linea) => {
+        if (!linea) return '';
+        if (/^(Desplazamiento|Intervenci[oó]n)\b/i.test(linea)) return '';
+        return linea
+          .replace(/\bsb:\/\/[^\s]+/gi, '')
+          .replace(/https?:\/\/[^\s]+/gi, '')
+          .trim();
+      })
+      .filter(Boolean)
+      .filter((parte) => !PATRONES_TECNICOS.some((re) => re.test(parte)))
+      .filter((parte) => !esFragmentoLugar(parte));
+
+    if (!limpias.length) return;
+    if (lineas.length) {
+      lineas.push('');
+    }
+    lineas.push(...limpias);
+  });
+
+  return lineas.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function dibujarTarjetasResumen(doc, estado, datos) {
@@ -428,7 +436,18 @@ function dibujarTablaInfo(doc, estado, filas) {
 
 function dibujarParrafo(doc, estado, texto) {
   const contenido = txt(texto, 'Sin descripción.');
-  const lineas = doc.splitTextToSize(contenido, PAGINA.contenido - 6);
+  const maxWidth = PAGINA.contenido - 6;
+  const segmentos = String(contenido || '').split(/\r?\n/);
+  const lineas = [];
+  segmentos.forEach((segmento, indice) => {
+    const normalizado = String(segmento || '').trimEnd();
+    if (!normalizado) {
+      lineas.push(' ');
+    } else {
+      const partidas = doc.splitTextToSize(normalizado, maxWidth);
+      lineas.push(...partidas);
+    }
+  });
   const alto = lineas.length * 4.4 + 6;
   reservarEspacio(doc, estado, alto);
 
@@ -520,8 +539,9 @@ function dibujarValoracionEconomica(doc, estado, val, totalMaterialesFallback = 
   const recFestPct = aplicaFest ? Number(val.recargoFestivoPct || 0) : 0;
   const recFueraPct = aplicaFuera ? Number(val.recargoFueraHorarioPct || 0) : 0;
   const pctRecargoMO = num(val.porcentajeRecargoManoObra) ?? (recFestPct + recFueraPct);
+  const mecanicosIntervinieron = Math.max(1, Math.round(num(val.mecanicosIntervinieron) ?? 1));
   const moBase = num(val.costeManoObraBase)
-    ?? (Number(val.tarifaManoObraHora || 0) * Number(val.horasManoObra || 0));
+    ?? (Number(val.tarifaManoObraHora || 0) * Number(val.horasManoObra || 0) * mecanicosIntervinieron);
   const moTotal = num(val.costeManoObraTotal) ?? (moBase * (1 + pctRecargoMO / 100));
   const desplTotal = num(val.costeDesplazamientoTotal)
     ?? (Number(val.tarifaDesplazamientoKm || 0) * Number(val.kmDesplazamientoFacturables || 0));
@@ -542,7 +562,13 @@ function dibujarValoracionEconomica(doc, estado, val, totalMaterialesFallback = 
 
   const filas = [
     ['Materiales', '', materialesFinal],
-    ['Mano de obra', `${num(val.horasManoObra) ?? 0} h × ${eur(val.tarifaManoObraHora)}`, moBase],
+    [
+      'Mano de obra',
+      mecanicosIntervinieron > 1
+        ? `${num(val.horasManoObra) ?? 0} h × ${mecanicosIntervinieron} mecánicos × ${eur(val.tarifaManoObraHora)}`
+        : `${num(val.horasManoObra) ?? 0} h × ${eur(val.tarifaManoObraHora)}`,
+      moBase,
+    ],
   ];
   if (pctRecargoMO > 0) {
     filas.push([`Recargo mano de obra`, `+${pctRecargoMO.toFixed(2)} %`, moTotal - moBase]);
