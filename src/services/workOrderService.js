@@ -1023,6 +1023,7 @@ export async function editarParteFinalizado(ordenId, payload) {
       coste_materiales_editable,
       tarifa_mano_obra_hora,
       horas_mano_obra,
+      mecanicos_intervinieron,
       tarifa_desplazamiento_km,
       km_desplazamiento_facturables,
       recargo_festivo_pct,
@@ -1144,15 +1145,28 @@ export async function editarParteFinalizado(ordenId, payload) {
       }
     }
 
-    // Recalcular coste_materiales_editable si no está fijado manualmente
-    const costeMatCalc = materialesNormalizados.reduce(
+    const costeMaterialesPrevioCalc = (Array.isArray(ordenActual.materiales_orden) ? ordenActual.materiales_orden : [])
+      .reduce((acc, m) => acc + Number(m.cantidad || 0) * Number(m.precio_unitario || 0), 0);
+    const costeEditablePrevio = ordenActual.coste_materiales_editable != null
+      ? Number(ordenActual.coste_materiales_editable)
+      : Number(costeMaterialesPrevioCalc.toFixed(2));
+    const costeMaterialesNuevoCalc = materialesNormalizados.reduce(
       (acc, m) => acc + Number(m.cantidad) * Number(m.precio_unitario),
       0,
     );
-    await supabase
-      .from('ordenes_trabajo')
-      .update({ coste_materiales_editable: Number(costeMatCalc.toFixed(2)) })
-      .eq('id', id);
+
+    const debeActualizarCosteMateriales = ordenActual.coste_materiales_editable == null
+      || Math.abs(costeEditablePrevio - Number(costeMaterialesPrevioCalc.toFixed(2))) < 0.02;
+
+    if (debeActualizarCosteMateriales) {
+      const { error: costeError } = await supabase
+        .from('ordenes_trabajo')
+        .update({ coste_materiales_editable: Number(costeMaterialesNuevoCalc.toFixed(2)) })
+        .eq('id', id);
+      if (costeError) {
+        throw new Error(`No se pudo recalcular el coste de materiales: ${costeError.message}`);
+      }
+    }
   }
 
   // Regenerar PDF (mantiene la valoración económica actual)
@@ -1187,23 +1201,41 @@ export async function editarParteFinalizado(ordenId, payload) {
   };
   const secuencialInforme = extraerSecuencialInformeDesdeUrl(ordenActual.informe_pdf_url);
 
+  const mecanicosIntervinieron = Math.max(1, Math.round(Number(ordenActual.mecanicos_intervinieron || 1)));
+  const tarifaManoObraHora = Number(ordenActual.tarifa_mano_obra_hora || 50);
+  const horasManoObra = Number(ordenActual.horas_mano_obra || 0);
+  const recargoFestivoPct = Number(ordenActual.recargo_festivo_pct || 0);
+  const recargoFueraHorarioPct = Number(ordenActual.recargo_fuera_horario_pct || 0);
+  const aplicaRecargoFestivo = Boolean(ordenActual.aplica_recargo_festivo);
+  const aplicaRecargoFueraHorario = Boolean(ordenActual.aplica_recargo_fuera_horario);
+  const porcentajeRecargoManoObra = (aplicaRecargoFestivo ? recargoFestivoPct : 0)
+    + (aplicaRecargoFueraHorario ? recargoFueraHorarioPct : 0);
+  const costeManoObraBase = Number((tarifaManoObraHora * horasManoObra * mecanicosIntervinieron).toFixed(2));
+  const costeManoObraTotal = ordenActual.coste_mano_obra_total != null
+    ? Number(ordenActual.coste_mano_obra_total)
+    : Number((costeManoObraBase * (1 + (porcentajeRecargoManoObra / 100))).toFixed(2));
+  const costeDesplazamientoTotal = Number(ordenActual.coste_desplazamiento_total || 0);
+  const costeMaterialesEditable = Number(ordenActual.coste_materiales_editable || 0);
+  const costeTotal = ordenActual.coste_total != null
+    ? Number(ordenActual.coste_total)
+    : Number((costeMaterialesEditable + costeManoObraTotal + costeDesplazamientoTotal).toFixed(2));
+
   const valoracionEconomica = {
-    costeMaterialesEditable: materialesNormalizados
-      ? Number(materialesNormalizados.reduce((a, m) => a + m.cantidad * m.precio_unitario, 0).toFixed(2))
-      : Number(ordenActual.coste_materiales_editable || 0),
-    tarifaManoObraHora: Number(ordenActual.tarifa_mano_obra_hora || 50),
-    horasManoObra: Number(ordenActual.horas_mano_obra || 0),
-    recargoFestivoPct: Number(ordenActual.recargo_festivo_pct || 0),
-    recargoFueraHorarioPct: Number(ordenActual.recargo_fuera_horario_pct || 0),
-    aplicaRecargoFestivo: Boolean(ordenActual.aplica_recargo_festivo),
-    aplicaRecargoFueraHorario: Boolean(ordenActual.aplica_recargo_fuera_horario),
-    porcentajeRecargoManoObra: 0,
-    costeManoObraBase: Number((Number(ordenActual.horas_mano_obra || 0) * Number(ordenActual.tarifa_mano_obra_hora || 0)).toFixed(2)),
-    costeManoObraTotal: Number(ordenActual.coste_mano_obra_total || 0),
+    costeMaterialesEditable,
+    tarifaManoObraHora,
+    horasManoObra,
+    mecanicosIntervinieron,
+    recargoFestivoPct,
+    recargoFueraHorarioPct,
+    aplicaRecargoFestivo,
+    aplicaRecargoFueraHorario,
+    porcentajeRecargoManoObra,
+    costeManoObraBase,
+    costeManoObraTotal,
     tarifaDesplazamientoKm: Number(ordenActual.tarifa_desplazamiento_km || 0),
     kmDesplazamientoFacturables: Number(ordenActual.km_desplazamiento_facturables || 0),
-    costeDesplazamientoTotal: Number(ordenActual.coste_desplazamiento_total || 0),
-    costeTotal: Number(ordenActual.coste_total || 0),
+    costeDesplazamientoTotal,
+    costeTotal,
   };
 
   const informe = await generarYSubirInformeParte({
