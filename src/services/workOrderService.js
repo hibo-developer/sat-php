@@ -374,6 +374,7 @@ export async function obtenerOrdenesTrabajo() {
     .select(
       `
       id,
+      updated_at,
       numero_ticket,
       descripcion_averia,
       tareas_realizadas,
@@ -398,7 +399,7 @@ export async function obtenerOrdenesTrabajo() {
       informe_pdf_url,
       fecha_inicio,
       fecha_fin,
-      clientes ( id, nombre ),
+      clientes ( id, nombre, direccion, telefono, lat, lng ),
       equipos ( id, nombre, marca, modelo ),
       tecnicos ( id, nombre ),
       materiales_orden ( id, nombre_material, cantidad, precio_unitario )
@@ -536,10 +537,11 @@ export async function finalizarOrdenTrabajo(idOrden, { tareasRealizadas, fotoUrl
   return data;
 }
 
-export async function actualizarOrdenTrabajo(idOrden, cambios) {
+export async function actualizarOrdenTrabajo(idOrden, cambios, opciones = {}) {
   const supabase = obtenerClienteSupabase();
   const contextoUsuario = await obtenerContextoUsuarioSat(supabase);
   const ordenId = limpiarTexto(idOrden);
+  const expectedUpdatedAt = limpiarTexto(opciones.expectedUpdatedAt) || null;
 
   if (!ordenId) {
     throw new Error('La orden que intentas actualizar no es válida.');
@@ -555,7 +557,7 @@ export async function actualizarOrdenTrabajo(idOrden, cambios) {
 
   const { data: ordenActual, error: errorOrdenActual } = await supabase
     .from('ordenes_trabajo')
-    .select('id, cliente_id, equipo_id, estado')
+    .select('id, cliente_id, equipo_id, estado, updated_at')
     .eq('id', ordenId)
     .maybeSingle();
 
@@ -579,16 +581,20 @@ export async function actualizarOrdenTrabajo(idOrden, cambios) {
     tecnico_id: tecnicoId,
   });
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('ordenes_trabajo')
     .update({
       tecnico_id: tecnicoId,
       prioridad,
       estado,
     })
-    .eq('id', ordenId)
-    .select()
-    .single();
+    .eq('id', ordenId);
+
+  if (expectedUpdatedAt) {
+    query = query.eq('updated_at', expectedUpdatedAt);
+  }
+
+  const { data, error } = await query.select();
 
   if (error) {
     if ((error.message || '').includes('Solo puedes editar ordenes asignadas a tu tecnico')) {
@@ -597,10 +603,22 @@ export async function actualizarOrdenTrabajo(idOrden, cambios) {
       );
     }
 
-    throw new Error(`No se pudo actualizar la orden de trabajo: ${error.message}`);
+    const wrapped = new Error(`No se pudo actualizar la orden de trabajo: ${error.message}`, { cause: error });
+    throw wrapped;
   }
 
-  return data;
+  const fila = Array.isArray(data) ? data[0] : null;
+  if (expectedUpdatedAt && !fila) {
+    const conflicto = new Error('Conflicto: la orden cambió mientras estabas offline.', { cause: null });
+    conflicto.status = 409;
+    throw conflicto;
+  }
+
+  if (!fila) {
+    throw new Error('No se pudo actualizar la orden de trabajo (sin respuesta del servidor).');
+  }
+
+  return fila;
 }
 
 export async function eliminarOrdenTrabajo(ordenId) {
@@ -636,7 +654,7 @@ export async function eliminarOrdenTrabajo(ordenId) {
     .eq('orden_id', id);
 
   if (errorMateriales) {
-    throw new Error(`No se pudieron eliminar los materiales de la orden: ${errorMateriales.message}`);
+    throw new Error(`No se pudieron eliminar los materiales de la orden: ${errorMateriales.message}`, { cause: errorMateriales });
   }
 
   const { error: errorOrden } = await supabase
@@ -645,7 +663,7 @@ export async function eliminarOrdenTrabajo(ordenId) {
     .eq('id', id);
 
   if (errorOrden) {
-    throw new Error(`No se pudo eliminar la orden de trabajo: ${errorOrden.message}`);
+    throw new Error(`No se pudo eliminar la orden de trabajo: ${errorOrden.message}`, { cause: errorOrden });
   }
 
   // Verificar que realmente se eliminó (RLS puede bloquear silenciosamente sin devolver error)
@@ -735,7 +753,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
       desplazamiento_fin,
       intervension_inicio,
       intervension_fin,
-      clientes ( id, nombre ),
+      clientes ( id, nombre, direccion, telefono, lat, lng ),
       equipos ( id, nombre, marca, modelo ),
       tecnicos ( id, nombre ),
       materiales_orden ( id, nombre_material, cantidad, precio_unitario )
@@ -1051,7 +1069,7 @@ export async function editarParteFinalizado(ordenId, payload) {
       coste_mano_obra_total,
       coste_desplazamiento_total,
       coste_total,
-      clientes ( id, nombre ),
+      clientes ( id, nombre, direccion, telefono, lat, lng ),
       equipos ( id, nombre ),
       tecnicos ( id, nombre ),
       materiales_orden ( id, nombre_material, cantidad, precio_unitario )

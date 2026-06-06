@@ -5,6 +5,7 @@ import { IndicadorSync } from './components/IndicadorSync';
 import { CambiarPasswordModal } from './components/CambiarPasswordModal';
 import { MfaModal } from './components/MfaModal';
 import { useAuthSession } from './hooks/useAuthSession';
+import { volcarTrackingBackgroundPendiente } from './services/backgroundLocationService';
 import { precargarCatalogosOffline } from './services/catalogosService';
 import { estaOnline } from './services/offlineSyncService';
 import { obtenerClienteSupabase, tieneConfiguracionSupabase } from './services/supabaseClient';
@@ -15,10 +16,12 @@ import { ClientesView } from './views/ClientesView';
 import { InventarioView } from './views/InventarioView';
 import { ListaOrdenesView } from './views/ListaOrdenesView';
 import { ParteTrabajoView } from './views/ParteTrabajoView';
+import { TrackingView } from './views/TrackingView';
 
 const TITULOS = {
   ordenes: 'Panel SAT',
   parte: 'Nuevo Parte',
+  tracking: 'Tracking',
   clientes: 'Clientes y Equipos',
   inventario: 'Inventario de Materiales',
   admin: 'Administración',
@@ -27,6 +30,7 @@ const TITULOS = {
 const NAV_ITEMS = [
   { key: 'ordenes', label: 'Órdenes' },
   { key: 'parte', label: 'Parte' },
+  { key: 'tracking', label: 'Tracking' },
   { key: 'clientes', label: 'Clientes' },
   { key: 'inventario', label: 'Inventario' },
   { key: 'admin', label: 'Admin' },
@@ -35,6 +39,7 @@ const NAV_ITEMS = [
 const RUTA_POR_VISTA = {
   ordenes: '/ordenes',
   parte: '/parte',
+  tracking: '/tracking',
   clientes: '/clientes',
   inventario: '/inventario',
   admin: '/admin',
@@ -72,6 +77,10 @@ function guardarPerfilUsuarioCacheado(userId, perfil) {
 function obtenerVistaDesdeRuta(pathname) {
   if (pathname.startsWith('/parte')) {
     return 'parte';
+  }
+
+  if (pathname.startsWith('/tracking')) {
+    return 'tracking';
   }
 
   if (pathname.startsWith('/clientes')) {
@@ -219,6 +228,31 @@ export default function App() {
     };
   }, [requiereLogin, sesion?.user?.id]);
 
+  useEffect(() => {
+    if (!requiereLogin || !sesion?.user?.id) {
+      return undefined;
+    }
+
+    function intentarVolcado() {
+      volcarTrackingBackgroundPendiente().catch(() => { /* noop */ });
+    }
+
+    function alVolverVisible() {
+      if (document.visibilityState === 'visible') {
+        intentarVolcado();
+      }
+    }
+
+    window.addEventListener('online', intentarVolcado);
+    document.addEventListener('visibilitychange', alVolverVisible);
+    intentarVolcado();
+
+    return () => {
+      window.removeEventListener('online', intentarVolcado);
+      document.removeEventListener('visibilitychange', alVolverVisible);
+    };
+  }, [requiereLogin, sesion?.user?.id]);
+
   function cambiarVistaSegura(siguienteVista) {
     if (siguienteVista === 'admin' && !esAdmin) {
       return;
@@ -246,6 +280,10 @@ export default function App() {
 
     if (item.key === 'inventario') {
       return puedeVerInventario;
+    }
+
+    if (item.key === 'tracking') {
+      return esTecnico;
     }
 
     return true;
@@ -358,6 +396,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/ordenes" replace />} />
             <Route path="/ordenes" element={<ListaOrdenesView rolUsuario={rolUsuario} />} />
             <Route path="/parte" element={<ParteTrabajoView rolUsuario={rolUsuario} />} />
+            <Route path="/tracking" element={esTecnico ? <TrackingView /> : <Navigate to="/ordenes" replace />} />
             <Route
               path="/clientes"
               element={puedeVerClientes ? <ClientesView rolUsuario={rolUsuario} /> : <Navigate to="/ordenes" replace />}
@@ -377,6 +416,7 @@ export default function App() {
           vistaActiva={vistaActiva}
           onCambiarVista={cambiarVistaSegura}
           mostrarAdmin={esAdmin}
+          mostrarTracking={esTecnico}
           mostrarClientes={puedeVerClientes}
           mostrarInventario={puedeVerInventario}
         />

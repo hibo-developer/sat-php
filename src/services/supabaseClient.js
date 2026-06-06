@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const runtimeConfig =
+  typeof window !== 'undefined' && window.__APP_CONFIG__ ? window.__APP_CONFIG__ : null;
+const supabaseUrl = runtimeConfig?.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = runtimeConfig?.SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 const cacheSignedUrls = new Map();
 
 // Cliente de Supabase centralizado para usar en servicios del dominio.
@@ -15,7 +17,7 @@ export function tieneConfiguracionSupabase() {
 export function obtenerClienteSupabase() {
   if (!supabase) {
     throw new Error(
-      'Falta configurar Supabase. Revisa VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en tu archivo .env'
+      'Falta configurar Supabase. Revisa app-config.js (hosting) o VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY en tu archivo .env'
     );
   }
 

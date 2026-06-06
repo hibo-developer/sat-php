@@ -22,21 +22,25 @@ import {
   eliminarOrdenTrabajo,
 } from './workOrderService';
 import { crearParteTrabajo } from './parteTrabajoService';
+import { insertarPuntoGps } from './ordenGpsService';
 
 const ACCIONES_SOPORTADAS = new Set(['actualizar', 'eliminar']);
 
 const oyentes = new Set();
+let syncTimer = null;
+let backoffMs = 0;
 
 function notificar() {
-  Promise.all([contarPendientes(), contarPartesPendientes()])
-    .then(([acciones, partes]) => {
-      const total = acciones + partes;
+  Promise.all([contarPendientes(), contarPartesPendientes(), contarGpsPendientes()])
+    .then(([acciones, partes, gps]) => {
+      const total = acciones + partes + gps;
       oyentes.forEach((cb) => {
         try {
           cb({
             pendientes: total,
             pendientesAcciones: acciones,
             pendientesPartes: partes,
+            pendientesGps: gps,
             online: estaOnline(),
           });
         } catch { /* noop */ }
@@ -56,17 +60,71 @@ export function estaOnline() {
   return navigator.onLine !== false;
 }
 
+function cancelarTimerSync() {
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+}
+
+async function programarSync({ force = false } = {}) {
+  if (!estaOnline()) return;
+  const [acciones, partes, gps] = await Promise.all([contarPendientes(), contarPartesPendientes(), contarGpsPendientes()]);
+  if (acciones + partes + gps === 0) {
+    backoffMs = 0;
+    cancelarTimerSync();
+    return;
+  }
+  if (syncTimer && !force) return;
+  cancelarTimerSync();
+  const espera = force ? 0 : backoffMs;
+  syncTimer = setTimeout(async () => {
+    syncTimer = null;
+    if (!estaOnline()) return;
+    const [rspAcciones, rspPartes, rspGps] = await Promise.allSettled([procesarCola(), procesarColaPartes(), procesarColaGps()]);
+    const huboError = [rspAcciones, rspPartes, rspGps].some((rsp) => (
+      rsp.status !== 'fulfilled' || Boolean(rsp.value?.huboError)
+    ));
+    const progreso = [rspAcciones, rspPartes, rspGps].some((rsp) => (
+      rsp.status === 'fulfilled'
+        && (
+          (rsp.value?.procesadas || 0) > 0
+          || (rsp.value?.procesados || 0) > 0
+        )
+    ));
+    const restantes = await Promise.all([contarPendientes(), contarPartesPendientes(), contarGpsPendientes()]).then(
+      ([a, p, g]) => a + p + g,
+    );
+    if (restantes === 0) {
+      backoffMs = 0;
+      return;
+    }
+    if (progreso && !huboError) {
+      backoffMs = 0;
+    } else {
+      backoffMs = backoffMs ? Math.min(60000, backoffMs * 2) : 5000;
+    }
+    programarSync().catch(() => { /* noop */ });
+  }, espera);
+}
+
 // ---------------------------------------------------------------------
 // Caché de lectura
 // ---------------------------------------------------------------------
 
 export async function reemplazarCacheOrdenes(ordenes) {
   if (!Array.isArray(ordenes)) return;
+  const corte = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const ordenesRecientes = ordenes.filter((o) => {
+    const fecha = o?.fecha_inicio ? new Date(o.fecha_inicio).getTime() : null;
+    if (!Number.isFinite(fecha)) return true;
+    return fecha >= corte;
+  });
   await db.transaction('rw', db.cache_ordenes, db.meta, async () => {
     await db.cache_ordenes.clear();
-    if (ordenes.length) {
+    if (ordenesRecientes.length) {
       await db.cache_ordenes.bulkPut(
-        ordenes.map((o) => ({ ...o, updated_at: o.updated_at || new Date().toISOString() })),
+        ordenesRecientes.map((o) => ({ ...o, updated_at: o.updated_at || new Date().toISOString() })),
       );
     }
     await db.meta.put({ clave: 'ultimaSync', valor: new Date().toISOString() });
@@ -78,6 +136,14 @@ export async function obtenerOrdenesCacheadas() {
     return await db.cache_ordenes.toArray();
   } catch {
     return [];
+  }
+}
+
+async function obtenerOrdenCacheadaPorId(ordenId) {
+  try {
+    return await db.cache_ordenes.get(ordenId);
+  } catch {
+    return null;
   }
 }
 
@@ -98,13 +164,51 @@ export async function encolarAccion({ tipo, ordenId, payload }) {
   if (!ACCIONES_SOPORTADAS.has(tipo)) {
     throw new Error(`Acción "${tipo}" no soportada en modo offline.`);
   }
-  await db.pending_actions.add({
-    tipo,
-    ordenId,
-    payload: payload ?? null,
-    createdAt: new Date().toISOString(),
+  const ahoraIso = new Date().toISOString();
+  const base = tipo === 'actualizar' ? await obtenerOrdenCacheadaPorId(ordenId) : null;
+  const baseUpdatedAt = base?.updated_at || null;
+  await db.transaction('rw', db.pending_actions, async () => {
+    if (tipo === 'eliminar') {
+      const existentes = await db.pending_actions.where('ordenId').equals(ordenId).toArray();
+      if (existentes.length) {
+        await db.pending_actions.bulkDelete(existentes.map((e) => e.id));
+      }
+      await db.pending_actions.add({
+        tipo,
+        ordenId,
+        payload: null,
+        createdAt: ahoraIso,
+        baseUpdatedAt,
+        clientUpdatedAt: ahoraIso,
+      });
+      return;
+    }
+
+    const existente = await db.pending_actions
+      .where('ordenId')
+      .equals(ordenId)
+      .filter((item) => item.tipo === 'actualizar')
+      .first();
+    if (existente) {
+      await db.pending_actions.update(existente.id, {
+        payload: { ...(existente.payload || {}), ...(payload || {}) },
+        baseUpdatedAt: existente.baseUpdatedAt || baseUpdatedAt,
+        clientUpdatedAt: ahoraIso,
+      });
+      return;
+    }
+
+    await db.pending_actions.add({
+      tipo,
+      ordenId,
+      payload: payload ?? null,
+      createdAt: ahoraIso,
+      baseUpdatedAt,
+      clientUpdatedAt: ahoraIso,
+    });
   });
   notificar();
+  programarSync().catch(() => { /* noop */ });
 }
 
 export async function contarPendientes() {
@@ -125,9 +229,73 @@ export async function listarPendientes() {
 
 let procesandoCola = false;
 
+async function registrarConflicto({ ordenId, tipo, baseUpdatedAt, remoteUpdatedAt, clientUpdatedAt, payload, resolucion, motivo }) {
+  try {
+    await db.sync_conflicts.add({
+      ordenId,
+      tipo,
+      baseUpdatedAt: baseUpdatedAt || null,
+      remoteUpdatedAt: remoteUpdatedAt || null,
+      clientUpdatedAt: clientUpdatedAt || null,
+      payload: payload || null,
+      resolucion: resolucion || null,
+      motivo: motivo || null,
+      createdAt: new Date().toISOString(),
+    });
+  } catch { /* noop */ }
+}
+
+function parseMs(iso) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function clasificarError(err) {
+  const status = err?.status || err?.cause?.status || null;
+  if (!estaOnline()) return { kind: 'network', retryable: true, status };
+  if (status === 401 || status === 403) return { kind: 'auth', retryable: false, status };
+  if (typeof status === 'number' && status >= 500) return { kind: 'server', retryable: true, status };
+  if (typeof status === 'number' && status >= 400) return { kind: 'client', retryable: false, status };
+  if (esErrorRed(err)) return { kind: 'network', retryable: true, status };
+  return { kind: 'unknown', retryable: false, status };
+}
+
 async function ejecutarAccionRemota(accion) {
   if (accion.tipo === 'actualizar') {
-    await actualizarOrdenTrabajo(accion.ordenId, accion.payload || {});
+    const baseUpdatedAt = accion.baseUpdatedAt || null;
+    if (baseUpdatedAt) {
+      const remoto = await obtenerOrdenTrabajoActualizadaAt(accion.ordenId);
+      const remotoUpdatedAt = remoto?.updated_at || null;
+      if (remotoUpdatedAt && remotoUpdatedAt !== baseUpdatedAt) {
+        const msRemoto = parseMs(remotoUpdatedAt);
+        const msLocal = parseMs(accion.clientUpdatedAt);
+        if (msRemoto !== null && msLocal !== null && msRemoto > msLocal) {
+          await registrarConflicto({
+            ordenId: accion.ordenId,
+            tipo: accion.tipo,
+            baseUpdatedAt,
+            remoteUpdatedAt: remotoUpdatedAt,
+            clientUpdatedAt: accion.clientUpdatedAt,
+            payload: accion.payload,
+            resolucion: 'remote_wins',
+            motivo: 'updated_at_remote_mas_reciente',
+          });
+          return { skip: true };
+        }
+        await registrarConflicto({
+          ordenId: accion.ordenId,
+          tipo: accion.tipo,
+          baseUpdatedAt,
+          remoteUpdatedAt: remotoUpdatedAt,
+          clientUpdatedAt: accion.clientUpdatedAt,
+          payload: accion.payload,
+          resolucion: 'local_wins',
+          motivo: 'updated_at_local_mas_reciente',
+        });
+      }
+    }
+    await actualizarOrdenTrabajo(accion.ordenId, accion.payload || {}, { expectedUpdatedAt: baseUpdatedAt });
     return;
   }
   if (accion.tipo === 'eliminar') {
@@ -138,20 +306,43 @@ async function ejecutarAccionRemota(accion) {
 }
 
 export async function procesarCola() {
-  if (procesandoCola || !estaOnline()) return { procesadas: 0, restantes: await contarPendientes() };
+  if (procesandoCola || !estaOnline()) {
+    return { procesadas: 0, restantes: await contarPendientes(), huboError: false };
+  }
   procesandoCola = true;
   let procesadas = 0;
+  let huboError = false;
 
   try {
     const pendientes = await listarPendientes();
     for (const accion of pendientes) {
       try {
-        await ejecutarAccionRemota(accion);
+        const rsp = await ejecutarAccionRemota(accion);
+        if (rsp?.skip) {
+          await db.pending_actions.delete(accion.id);
+          procesadas += 1;
+          continue;
+        }
         await db.pending_actions.delete(accion.id);
         procesadas += 1;
       } catch (err) {
-        // Si falla una acción, paramos para preservar el orden y reintentar luego.
-        console.warn('[sync] acción pendiente falló, reintento posterior:', err?.message || err);
+        const info = clasificarError(err);
+        if (!info.retryable) {
+          await registrarConflicto({
+            ordenId: accion.ordenId,
+            tipo: accion.tipo,
+            baseUpdatedAt: accion.baseUpdatedAt,
+            remoteUpdatedAt: null,
+            clientUpdatedAt: accion.clientUpdatedAt,
+            payload: accion.payload,
+            resolucion: 'discarded',
+            motivo: err?.message || String(err),
+          });
+          await db.pending_actions.delete(accion.id);
+          procesadas += 1;
+          continue;
+        }
+        huboError = true;
         break;
       }
     }
@@ -160,7 +351,11 @@ export async function procesarCola() {
     notificar();
   }
 
-  return { procesadas, restantes: await contarPendientes() };
+  const restantes = await contarPendientes();
+  if (restantes > 0) {
+    programarSync().catch(() => { /* noop */ });
+  }
+  return { procesadas, restantes, huboError };
 }
 
 // ---------------------------------------------------------------------
@@ -207,7 +402,7 @@ export async function intentarEliminarOrden(idOrden) {
 
 function esErrorRed(err) {
   if (!err) return false;
-  const mensaje = String(err.message || err).toLowerCase();
+  const mensaje = String(err.message || err?.cause?.message || err).toLowerCase();
   return (
     mensaje.includes('failed to fetch')
     || mensaje.includes('networkerror')
@@ -255,6 +450,7 @@ export async function encolarParteFinalizado(parteCompleto) {
     ultimoError: null,
   });
   notificar();
+  programarSync().catch(() => { /* noop */ });
 }
 
 export async function contarPartesPendientes() {
@@ -292,10 +488,11 @@ async function ejecutarParteRemoto(item) {
 
 export async function procesarColaPartes() {
   if (procesandoPartes || !estaOnline()) {
-    return { procesados: 0, restantes: await contarPartesPendientes() };
+    return { procesados: 0, restantes: await contarPartesPendientes(), huboError: false };
   }
   procesandoPartes = true;
   let procesados = 0;
+  let huboError = false;
 
   try {
     const pendientes = await listarPartesPendientes();
@@ -311,7 +508,10 @@ export async function procesarColaPartes() {
           ultimoError: String(err?.message || err),
         });
         // Si es error de red, paramos para no consumir intentos en cadena.
-        if (esErrorRed(err)) break;
+        if (esErrorRed(err)) {
+          huboError = true;
+          break;
+        }
         // Si es error de validación (cliente borrado, stock, etc.), seguimos
         // con el siguiente para no bloquear toda la cola.
       }
@@ -321,7 +521,116 @@ export async function procesarColaPartes() {
     notificar();
   }
 
-  return { procesados, restantes: await contarPartesPendientes() };
+  const restantes = await contarPartesPendientes();
+  if (restantes > 0) {
+    programarSync().catch(() => { /* noop */ });
+  }
+  return { procesados, restantes, huboError };
+}
+
+// =====================================================================
+// Cola de puntos GPS (tracking/histórico)
+// =====================================================================
+
+export async function encolarPuntoGps(punto) {
+  const ordenId = String(punto?.orden_id || punto?.ordenId || '').trim();
+  if (!ordenId) {
+    throw new Error('orden_id requerido para encolar punto GPS.');
+  }
+  const lat = Number(punto?.lat);
+  const lng = Number(punto?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error('Coordenadas GPS inválidas.');
+  }
+  const recordedAt = punto?.recorded_at || punto?.recordedAt || new Date().toISOString();
+  await db.pending_gps.add({
+    ordenId,
+    payload: {
+      orden_id: ordenId,
+      tecnico_id: punto?.tecnico_id || punto?.tecnicoId || null,
+      lat,
+      lng,
+      accuracy_m: Number.isFinite(Number(punto?.accuracy_m)) ? Number(punto?.accuracy_m) : null,
+      recorded_at: recordedAt,
+      tipo: punto?.tipo || 'tracking',
+      source: punto?.source || 'app',
+    },
+    createdAt: new Date().toISOString(),
+    intentos: 0,
+    ultimoError: null,
+  });
+  notificar();
+  programarSync().catch(() => { /* noop */ });
+}
+
+export async function contarGpsPendientes() {
+  try {
+    return await db.pending_gps.count();
+  } catch {
+    return 0;
+  }
+}
+
+async function listarGpsPendientes() {
+  try {
+    return await db.pending_gps.orderBy('id').toArray();
+  } catch {
+    return [];
+  }
+}
+
+let procesandoGps = false;
+
+export async function procesarColaGps() {
+  if (procesandoGps || !estaOnline()) {
+    return { procesados: 0, restantes: await contarGpsPendientes(), huboError: false };
+  }
+  procesandoGps = true;
+  let procesados = 0;
+  let huboError = false;
+
+  try {
+    const pendientes = await listarGpsPendientes();
+    for (const item of pendientes) {
+      try {
+        await insertarPuntoGps(item.payload);
+        await db.pending_gps.delete(item.id);
+        procesados += 1;
+      } catch (err) {
+        await db.pending_gps.update(item.id, {
+          intentos: (item.intentos || 0) + 1,
+          ultimoError: String(err?.message || err),
+        });
+        const info = clasificarError(err);
+        if (!info.retryable) {
+          await registrarConflicto({
+            ordenId: item.ordenId,
+            tipo: 'gps',
+            baseUpdatedAt: null,
+            remoteUpdatedAt: null,
+            clientUpdatedAt: item.createdAt,
+            payload: item.payload,
+            resolucion: 'discarded',
+            motivo: err?.message || String(err),
+          });
+          await db.pending_gps.delete(item.id);
+          procesados += 1;
+          continue;
+        }
+        huboError = true;
+        break;
+      }
+    }
+  } finally {
+    procesandoGps = false;
+    notificar();
+  }
+
+  const restantes = await contarGpsPendientes();
+  if (restantes > 0) {
+    programarSync().catch(() => { /* noop */ });
+  }
+  return { procesados, restantes, huboError };
 }
 
 // ---------------------------------------------------------------------
@@ -332,9 +641,32 @@ if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
     procesarCola().catch(() => { /* noop */ });
     procesarColaPartes().catch(() => { /* noop */ });
+    procesarColaGps().catch(() => { /* noop */ });
     notificar();
+    programarSync({ force: true }).catch(() => { /* noop */ });
   });
   window.addEventListener('offline', () => {
     notificar();
   });
+}
+
+async function obtenerOrdenTrabajoActualizadaAt(ordenId) {
+  try {
+    const supabase = await import('./supabaseClient').then((m) => m.obtenerClienteSupabase());
+    const { data, error } = await supabase
+      .from('ordenes_trabajo')
+      .select('id, updated_at')
+      .eq('id', ordenId)
+      .maybeSingle();
+    if (error) return null;
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    programarSync({ force: true }).catch(() => { /* noop */ });
+  }, 0);
 }

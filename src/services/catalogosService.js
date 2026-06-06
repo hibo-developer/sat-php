@@ -209,7 +209,7 @@ export async function obtenerClientes(opciones = {}) {
 
   let consulta = supabase
     .from('clientes')
-    .select('id, nombre', { count: 'exact' })
+    .select('id, nombre, direccion, telefono, lat, lng', { count: 'exact' })
     .order('nombre', { ascending: true })
     .range(desde, hasta);
 

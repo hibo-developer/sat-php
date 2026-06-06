@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   obtenerClientes,
   obtenerEquiposPorCliente,
@@ -7,7 +7,13 @@ import {
 } from '../services/catalogosService';
 import { listarMaterialesInventario } from '../services/inventarioMaterialesService';
 import { crearParteTrabajo, obtenerOrdenesAbiertasParaParte } from '../services/parteTrabajoService';
-import { encolarParteFinalizado, estaOnline } from '../services/offlineSyncService';
+import {
+  encolarParteFinalizado,
+  encolarPuntoGps,
+  estaOnline,
+  intentarActualizarOrden,
+} from '../services/offlineSyncService';
+import { detenerTrackingBackground, iniciarTrackingBackground } from '../services/backgroundLocationService';
 import { tieneConfiguracionSupabase } from '../services/supabaseClient';
 
 function obtenerUbicacionActual() {
@@ -185,6 +191,60 @@ function parsearNumeroDecimal(valor) {
   return Number.isFinite(numero) ? numero : null;
 }
 
+function construirUrlRutaCliente({ lat, lng, direccion }) {
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
+  if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${latNum},${lngNum}&travelmode=driving`;
+  }
+  const dir = String(direccion || '').trim();
+  if (dir) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dir)}&travelmode=driving`;
+  }
+  return '';
+}
+
+async function comprimirImagenA1280(archivo, nombreFinal) {
+  const file = archivo instanceof File ? archivo : null;
+  if (!file) return null;
+  const blobUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+      el.src = blobUrl;
+    });
+
+    const maxPx = 1280;
+    const ancho = img.naturalWidth || img.width;
+    const alto = img.naturalHeight || img.height;
+    const escala = Math.min(1, maxPx / Math.max(ancho, alto));
+    const nuevoAncho = Math.max(1, Math.round(ancho * escala));
+    const nuevoAlto = Math.max(1, Math.round(alto * escala));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = nuevoAncho;
+    canvas.height = nuevoAlto;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return new File([file], nombreFinal, { type: file.type || 'image/jpeg', lastModified: Date.now() });
+    }
+    ctx.drawImage(img, 0, 0, nuevoAncho, nuevoAlto);
+
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.82);
+    });
+    if (!blob) {
+      return new File([file], nombreFinal, { type: file.type || 'image/jpeg', lastModified: Date.now() });
+    }
+
+    return new File([blob], nombreFinal, { type: 'image/jpeg', lastModified: Date.now() });
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
 const FORM_INICIAL = {
   orden_id: '',
   cliente_id: '',
@@ -263,8 +323,9 @@ function limpiarBorradorParte() {
   } catch {}
 }
 
-export function ParteTrabajoView() {
+export function ParteTrabajoView({ rolUsuario }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const prefillAplicadoRef = useRef(false);
   const borradorInicialRef = useRef();
   if (borradorInicialRef.current === undefined) {
@@ -330,6 +391,7 @@ export function ParteTrabajoView() {
     return Array.isArray(cacheado) ? cacheado : [];
   });
   const [fotosIntervencion, setFotosIntervencion] = useState([]);
+  const [previewsFotos, setPreviewsFotos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [capturandoTiempo, setCapturandoTiempo] = useState(false);
@@ -345,8 +407,12 @@ export function ParteTrabajoView() {
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
   const canvasFirmaRef = useRef(null);
+  const inputFotoAntesRef = useRef(null);
+  const inputFotoDespuesRef = useRef(null);
+  const previewsFotosRef = useRef(new Map());
   const dibujandoFirmaRef = useRef(false);
   const ignorarGuardadoBorradorRef = useRef(false);
+  const llegadaRegistradaRef = useRef(false);
 
   useEffect(() => {
     if (ignorarGuardadoBorradorRef.current) {
@@ -522,6 +588,140 @@ export function ParteTrabajoView() {
       };
     }, [pendienteGeoIntervension]);
 
+  useEffect(() => {
+    if (!seguimientoTiempo.inicioIso || seguimientoTiempo.finIso) {
+      return undefined;
+    }
+    if (!formulario.orden_id || !formulario.tecnico_id) {
+      return undefined;
+    }
+
+    let cancelado = false;
+
+    async function capturarPunto() {
+      try {
+        const ubicacion = await obtenerUbicacionActual();
+        if (cancelado) return;
+        await encolarPuntoGps({
+          orden_id: formulario.orden_id,
+          tecnico_id: formulario.tecnico_id,
+          lat: ubicacion.latitud,
+          lng: ubicacion.longitud,
+          accuracy_m: ubicacion.precisionMetros,
+          recorded_at: new Date().toISOString(),
+          tipo: 'tracking',
+          source: 'seguimiento',
+        });
+      } catch {}
+    }
+
+    void capturarPunto();
+    const intervalo = window.setInterval(capturarPunto, 5 * 60 * 1000);
+
+    return () => {
+      cancelado = true;
+      window.clearInterval(intervalo);
+    };
+  }, [formulario.orden_id, formulario.tecnico_id, seguimientoTiempo.finIso, seguimientoTiempo.inicioIso]);
+
+  useEffect(() => {
+    const desplazamientoActivo = Boolean(desplazamiento.inicioIso && !desplazamiento.finIso);
+    if (!desplazamientoActivo) {
+      return undefined;
+    }
+
+    const cliente = clientes.find((c) => c.id === formulario.cliente_id);
+    const lat = Number(cliente?.lat);
+    const lng = Number(cliente?.lng);
+    if (!navigator.geolocation || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return undefined;
+    }
+
+    llegadaRegistradaRef.current = false;
+    let watchId = null;
+
+    watchId = navigator.geolocation.watchPosition(
+      async (pos) => {
+        if (llegadaRegistradaRef.current) return;
+        const ubicacionActual = {
+          latitud: pos.coords.latitude,
+          longitud: pos.coords.longitude,
+        };
+        const objetivo = { latitud: lat, longitud: lng };
+        const distancia = calcularDistanciaMetros(ubicacionActual, objetivo);
+        if (distancia > 100) return;
+
+        llegadaRegistradaRef.current = true;
+        setMensaje('Llegada al cliente detectada (≤100m). Puedes iniciar la intervención.');
+        setError('');
+
+        try {
+          await encolarPuntoGps({
+            orden_id: formulario.orden_id,
+            tecnico_id: formulario.tecnico_id,
+            lat: ubicacionActual.latitud,
+            lng: ubicacionActual.longitud,
+            accuracy_m: pos.coords.accuracy,
+            recorded_at: new Date().toISOString(),
+            tipo: 'arrival',
+            source: 'arrival',
+          });
+        } catch {}
+
+        if (formulario.orden_id && formulario.tecnico_id) {
+          intentarActualizarOrden(formulario.orden_id, {
+            tecnico_id: formulario.tecnico_id,
+            prioridad: formulario.prioridad || 'media',
+            estado: 'en_proceso',
+          }).catch(() => { /* noop */ });
+        }
+
+        if (watchId !== null) {
+          navigator.geolocation.clearWatch(watchId);
+        }
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 },
+    );
+
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
+  }, [clientes, desplazamiento.finIso, desplazamiento.inicioIso, formulario.cliente_id, formulario.orden_id, formulario.prioridad, formulario.tecnico_id]);
+
+  useEffect(() => {
+    const mapa = previewsFotosRef.current;
+    const nuevos = [];
+    const activos = new Set();
+    fotosIntervencion.forEach((foto) => {
+      const clave = `${foto.name}-${foto.size}-${foto.lastModified}`;
+      activos.add(clave);
+      let url = mapa.get(clave);
+      if (!url) {
+        url = URL.createObjectURL(foto);
+        mapa.set(clave, url);
+      }
+      nuevos.push({ clave, url, nombre: foto.name });
+    });
+    for (const [clave, url] of Array.from(mapa.entries())) {
+      if (!activos.has(clave)) {
+        URL.revokeObjectURL(url);
+        mapa.delete(clave);
+      }
+    }
+    setPreviewsFotos(nuevos);
+  }, [fotosIntervencion]);
+
+  useEffect(() => () => {
+    const mapa = previewsFotosRef.current;
+    for (const url of mapa.values()) {
+      URL.revokeObjectURL(url);
+    }
+    mapa.clear();
+  }, []);
+
   function prepararCanvasFirma() {
     const canvas = canvasFirmaRef.current;
     if (!canvas) {
@@ -627,6 +827,13 @@ export function ParteTrabajoView() {
         distanciaMetros: null,
         minutosGeo: null,
       });
+      if (formulario.orden_id && formulario.tecnico_id) {
+        iniciarTrackingBackground({
+          ordenId: formulario.orden_id,
+          tecnicoId: formulario.tecnico_id,
+          intervalMinutes: 5,
+        }).catch(() => { /* noop */ });
+      }
       setMensaje('Inicio registrado con geolocalización.');
     } catch (err) {
       const inicioIso = new Date().toISOString();
@@ -638,6 +845,13 @@ export function ParteTrabajoView() {
         distanciaMetros: null,
         minutosGeo: null,
       });
+      if (formulario.orden_id && formulario.tecnico_id) {
+        iniciarTrackingBackground({
+          ordenId: formulario.orden_id,
+          tecnicoId: formulario.tecnico_id,
+          intervalMinutes: 5,
+        }).catch(() => { /* noop */ });
+      }
       setFormulario((prev) => ({ ...prev, tiempo_empleado: '1' }));
       setMensaje('Inicio registrado con hora actual (sin geolocalización).');
       setError('');
@@ -698,6 +912,7 @@ export function ParteTrabajoView() {
       setMensaje('Fin registrado con hora actual (sin geolocalización). Tiempo empleado calculado automáticamente.');
       setError('');
     } finally {
+      detenerTrackingBackground().catch(() => { /* noop */ });
       setCapturandoTiempo(false);
     }
   }
@@ -720,6 +935,13 @@ export function ParteTrabajoView() {
         distanciaMetros: null,
         minutosGeo: null,
       });
+      if (formulario.orden_id && formulario.tecnico_id) {
+        iniciarTrackingBackground({
+          ordenId: formulario.orden_id,
+          tecnicoId: formulario.tecnico_id,
+          intervalMinutes: 5,
+        }).catch(() => { /* noop */ });
+      }
       setMensaje('Desplazamiento iniciado (origen fijo: Cotepa S.L., Paiporta).');
     } finally {
       setCapturandoDesplazamiento(false);
@@ -920,6 +1142,7 @@ export function ParteTrabajoView() {
       setFormulario((prev) => ({ ...prev, tiempo_empleado: String(minutosNetos) }));
       setError('No se pudo capturar ubicación final.');
     } finally {
+      detenerTrackingBackground().catch(() => { /* noop */ });
       setCapturandoIntervension(false);
     }
   }
@@ -1008,27 +1231,100 @@ export function ParteTrabajoView() {
     setMensaje('Pausa de comida eliminada.');
   }
 
-  function manejarSeleccionFotos(evento) {
+  async function manejarSeleccionFotos(evento, categoria) {
     const archivos = Array.from(evento.target.files || []);
+    // Permite volver a seleccionar el mismo archivo en una nueva acción.
+    evento.target.value = '';
+
+    if (archivos.length === 0) {
+      return;
+    }
+
+    const cat = categoria === 'despues' ? 'despues' : 'antes';
+    const orden = ordenesAbiertas.find((o) => o.id === formulario.orden_id);
+    const ticket = orden?.numero_ticket || location.state?.prefill?.numero_ticket || null;
+    const otRef = ticket ? String(ticket) : (formulario.orden_id ? String(formulario.orden_id).slice(0, 8) : 'sin_ot');
+    const base = `ot_${otRef}_${cat}_`;
+    let contador = fotosIntervencion.filter((f) => f.name.includes(`_${cat}_`)).length;
+
+    const maxPermitidas = 10;
+    const disponibles = Math.max(0, maxPermitidas - fotosIntervencion.length);
+    if (disponibles === 0) {
+      setError('Límite alcanzado: máximo 10 fotos por parte.');
+      return;
+    }
+
+    setError('');
+    setMensaje('');
+
+    const procesadas = [];
+    for (const archivo of archivos.slice(0, disponibles)) {
+      contador += 1;
+      const nombreFinal = `${base}${String(contador).padStart(2, '0')}.jpg`;
+      const comprimida = await comprimirImagenA1280(archivo, nombreFinal);
+      if (comprimida) {
+        procesadas.push(comprimida);
+      }
+    }
+
+    if (procesadas.length === 0) {
+      return;
+    }
+
     setFotosIntervencion((previas) => {
       const mapa = new Map();
-      [...previas, ...archivos].forEach((archivo) => {
+      [...previas, ...procesadas].forEach((archivo) => {
         const clave = `${archivo.name}-${archivo.size}-${archivo.lastModified}`;
         mapa.set(clave, archivo);
       });
-      return Array.from(mapa.values());
+      return Array.from(mapa.values()).slice(0, maxPermitidas);
     });
-
-    // Permite volver a seleccionar el mismo archivo en una nueva acción.
-    evento.target.value = '';
   }
 
   function quitarFotoIntervencion(indiceObjetivo) {
     setFotosIntervencion((prev) => prev.filter((_, indice) => indice !== indiceObjetivo));
   }
 
+  function abrirRutaCliente() {
+    const cliente = clientes.find((c) => c.id === formulario.cliente_id);
+    const url = construirUrlRutaCliente({
+      lat: cliente?.lat,
+      lng: cliente?.lng,
+      direccion: cliente?.direccion,
+    });
+    if (!url) {
+      setError('El cliente no tiene coordenadas ni dirección para abrir la ruta.');
+      return;
+    }
+    if (formulario.orden_id && formulario.tecnico_id) {
+      iniciarTrackingBackground({
+        ordenId: formulario.orden_id,
+        tecnicoId: formulario.tecnico_id,
+        intervalMinutes: 5,
+      }).catch(() => { /* noop */ });
+    }
+    setError('');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function abrirTracking() {
+    setMensaje('');
+    if (!formulario.orden_id || !formulario.tecnico_id) {
+      setError('Selecciona una OT y un técnico para abrir Tracking.');
+      return;
+    }
+    setError('');
+    navigate('/tracking', {
+      state: {
+        ordenId: formulario.orden_id,
+        tecnicoId: formulario.tecnico_id,
+      },
+    });
+  }
+
   function resetearFormulario() {
     ignorarGuardadoBorradorRef.current = true;
+    detenerTrackingBackground().catch(() => { /* noop */ });
     setFormulario(FORM_INICIAL);
     setDesplazamiento({
       inicioIso: null, finIso: null, ubicacionInicio: null, ubicacionFin: null,
@@ -1312,6 +1608,33 @@ export function ParteTrabajoView() {
         <p className="text-xs text-slate-500 lg:col-span-2">
           Al guardarlo, la orden vinculada se finaliza. Si no hay orden, se crea una orden imprevista y se finaliza en el mismo paso.
         </p>
+
+        {formulario.cliente_id && (
+          <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 lg:col-span-2">
+            <p className="text-xs font-semibold text-sky-900">Ruta al cliente</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={abrirRutaCliente}
+                disabled={guardando}
+                className="w-full rounded-xl border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-800 disabled:opacity-60"
+              >
+                Iniciar ruta al cliente
+              </button>
+              <button
+                type="button"
+                onClick={abrirTracking}
+                disabled={guardando || rolUsuario !== 'tecnico' || !formulario.orden_id || !formulario.tecnico_id}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+              >
+                Abrir tracking
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-600">
+              Usa coordenadas si están guardadas; si no, usa la dirección del cliente.
+            </p>
+          </div>
+        )}
 
         <div className="rounded-xl border border-marca-200 bg-marca-50 p-3 lg:col-span-2">
           <p className="text-xs font-semibold text-marca-900">Intervención (en cliente por geolocalización)</p>
@@ -1672,25 +1995,64 @@ export function ParteTrabajoView() {
               </button>
             )}
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => inputFotoAntesRef.current?.click()}
+              disabled={guardando}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+            >
+              Añadir (antes)
+            </button>
+            <button
+              type="button"
+              onClick={() => inputFotoDespuesRef.current?.click()}
+              disabled={guardando}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+            >
+              Añadir (después)
+            </button>
+          </div>
           <input
+            ref={inputFotoAntesRef}
             type="file"
             accept="image/*"
+            capture="environment"
             multiple
-            onChange={manejarSeleccionFotos}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs"
+            onChange={(e) => manejarSeleccionFotos(e, 'antes')}
+            className="hidden"
           />
+          <input
+            ref={inputFotoDespuesRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            onChange={(e) => manejarSeleccionFotos(e, 'despues')}
+            className="hidden"
+          />
+          <p className="mt-2 text-[11px] text-slate-600">
+            Máximo 10 fotos. Se comprimen a 1280px para facilitar el envío.
+          </p>
           {fotosIntervencion.length > 0 && (
-            <ul className="mt-2 space-y-1">
+            <ul className="mt-2 grid grid-cols-2 gap-2">
               {fotosIntervencion.map((foto, indice) => (
-                <li key={`${foto.name}-${indice}`} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs">
-                  <span className="truncate pr-2">{foto.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => quitarFotoIntervencion(indice)}
-                    className="rounded-lg bg-rose-100 px-2 py-1 font-semibold text-rose-700"
-                  >
-                    Quitar
-                  </button>
+                <li key={`${foto.name}-${foto.size}-${foto.lastModified}`} className="rounded-lg bg-white p-2 text-xs">
+                  <img
+                    src={previewsFotosRef.current.get(`${foto.name}-${foto.size}-${foto.lastModified}`)}
+                    alt={foto.name}
+                    className="h-20 w-full rounded-md object-cover"
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate">{foto.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => quitarFotoIntervencion(indice)}
+                      className="shrink-0 rounded-lg bg-rose-100 px-2 py-1 font-semibold text-rose-700"
+                    >
+                      Quitar
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

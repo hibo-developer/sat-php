@@ -18,6 +18,8 @@ const FORM_CLIENTE_INICIAL = {
   direccion: '',
   telefono: '',
   email: '',
+  lat: '',
+  lng: '',
 };
 
 const FORM_EQUIPO_INICIAL = {
@@ -155,11 +157,25 @@ export function ClientesView({ rolUsuario }) {
     setError('');
 
     try {
+      const latNum = clienteForm.lat !== '' && clienteForm.lat !== null && clienteForm.lat !== undefined
+        ? Number.parseFloat(String(clienteForm.lat).replace(',', '.'))
+        : null;
+      const lngNum = clienteForm.lng !== '' && clienteForm.lng !== null && clienteForm.lng !== undefined
+        ? Number.parseFloat(String(clienteForm.lng).replace(',', '.'))
+        : null;
+      const payload = {
+        nombre: clienteForm.nombre,
+        direccion: clienteForm.direccion || null,
+        telefono: clienteForm.telefono || null,
+        email: clienteForm.email || null,
+        lat: Number.isFinite(latNum) ? latNum : null,
+        lng: Number.isFinite(lngNum) ? lngNum : null,
+      };
       if (clienteEditandoId) {
-        await actualizarCliente(clienteEditandoId, clienteForm);
+        await actualizarCliente(clienteEditandoId, payload);
         setMensaje('Cliente actualizado correctamente.');
       } else {
-        await crearCliente(clienteForm);
+        await crearCliente(payload);
         setMensaje('Cliente creado correctamente.');
       }
       limpiarFormCliente();
@@ -314,6 +330,22 @@ export function ClientesView({ rolUsuario }) {
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
                 placeholder="Email"
               />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  inputMode="decimal"
+                  value={clienteForm.lat}
+                  onChange={(e) => setClienteForm((p) => ({ ...p, lat: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder="Latitud"
+                />
+                <input
+                  inputMode="decimal"
+                  value={clienteForm.lng}
+                  onChange={(e) => setClienteForm((p) => ({ ...p, lng: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  placeholder="Longitud"
+                />
+              </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <button className="rounded-xl bg-cotepa-rojo-500 px-4 py-3 text-sm font-bold text-white" type="submit">
@@ -379,6 +411,9 @@ export function ClientesView({ rolUsuario }) {
                   <p className="text-sm font-bold text-slate-800">{cliente.nombre}</p>
                   <p className="text-xs text-slate-600">{cliente.telefono || 'Sin teléfono'} · {cliente.email || 'Sin email'}</p>
                   <p className="mt-1 text-xs text-slate-500">{cliente.direccion || 'Sin dirección'}</p>
+                  {(cliente.lat != null && cliente.lng != null) && (
+                    <p className="mt-1 text-xs text-slate-500">GPS: {Number(cliente.lat).toFixed(5)}, {Number(cliente.lng).toFixed(5)}</p>
+                  )}
 
                   {puedeEditarCatalogos && (
                     <div className="mt-3 grid grid-cols-2 gap-2">
@@ -392,6 +427,8 @@ export function ClientesView({ rolUsuario }) {
                             direccion: cliente.direccion || '',
                             telefono: cliente.telefono || '',
                             email: cliente.email || '',
+                            lat: cliente.lat != null ? String(cliente.lat) : '',
+                            lng: cliente.lng != null ? String(cliente.lng) : '',
                           });
                         }}
                       >

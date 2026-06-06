@@ -6,7 +6,7 @@ export async function listarClientes() {
 
   const { data, error } = await supabase
     .from('clientes')
-    .select('id, nombre, direccion, telefono, email, created_at')
+    .select('id, nombre, direccion, telefono, email, lat, lng, created_at')
     .order('created_at', { ascending: false });
 
   if (error) {

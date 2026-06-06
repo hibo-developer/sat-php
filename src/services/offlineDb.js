@@ -22,4 +22,21 @@ db.version(2).stores({
   meta: 'clave',
 });
 
+db.version(3).stores({
+  cache_ordenes: 'id, estado, updated_at',
+  pending_actions: '++id, tipo, ordenId, createdAt',
+  pending_partes: '++id, createdAt, intentos',
+  sync_conflicts: '++id, ordenId, createdAt',
+  meta: 'clave',
+});
+
+db.version(4).stores({
+  cache_ordenes: 'id, estado, updated_at',
+  pending_actions: '++id, tipo, ordenId, createdAt',
+  pending_partes: '++id, createdAt, intentos',
+  pending_gps: '++id, ordenId, createdAt',
+  sync_conflicts: '++id, ordenId, createdAt',
+  meta: 'clave',
+});
+
 export default db;

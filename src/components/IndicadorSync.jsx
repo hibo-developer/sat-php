@@ -14,6 +14,7 @@ export function IndicadorSync() {
     pendientes: 0,
     pendientesAcciones: 0,
     pendientesPartes: 0,
+    pendientesGps: 0,
   });
   const [sincronizando, setSincronizando] = useState(false);
 
@@ -70,6 +71,9 @@ export function IndicadorSync() {
   const detallePartes = estado.pendientesPartes > 0
     ? ` · ${estado.pendientesPartes} parte${estado.pendientesPartes > 1 ? 's' : ''} por enviar`
     : '';
+  const detalleGps = estado.pendientesGps > 0
+    ? ` · ${estado.pendientesGps} punto${estado.pendientesGps > 1 ? 's' : ''} GPS`
+    : '';
 
   return (
     <div
@@ -89,6 +93,7 @@ export function IndicadorSync() {
             </span>
           )}
           {detallePartes}
+          {detalleGps}
         </span>
       </div>
       {!offline && estado.pendientes > 0 && (

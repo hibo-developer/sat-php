@@ -91,13 +91,15 @@ VITE_SUPABASE_ANON_KEY=<anon_key>
 1. `supabase/migrations/20260423000000_create_schema_sat.sql`
 2. `supabase/migrations/20260423100000_seed_data.sql` *(solo pruebas)*
 3. `supabase/migrations/20260423200000_storage_buckets.sql`
-4. `supabase/migrations/20260501000000_security_hardening_block_anon.sql`
-5. `supabase/migrations/20260501010000_lint_fixes_security.sql`
-6. `supabase/migrations/20260501020000_lint_perf_initplan_and_multiple_permissive.sql`
-7. `supabase/migrations/20260501030000_fk_covering_indexes.sql`
-8. `supabase/migrations/20260501040000_drop_redundant_deny_anonymous.sql`
-9. `supabase/migrations/20260501050000_move_security_definer_to_private_schema.sql`
-10. `supabase/migrations/20260501060000_storage_select_policies.sql`
+4. `supabase/migrations/20260606000000_add_updated_at_ordenes_trabajo.sql`
+5. `supabase/migrations/20260606010000_add_client_coords_and_gps_history.sql`
+6. `supabase/migrations/20260501000000_security_hardening_block_anon.sql`
+7. `supabase/migrations/20260501010000_lint_fixes_security.sql`
+8. `supabase/migrations/20260501020000_lint_perf_initplan_and_multiple_permissive.sql`
+9. `supabase/migrations/20260501030000_fk_covering_indexes.sql`
+10. `supabase/migrations/20260501040000_drop_redundant_deny_anonymous.sql`
+11. `supabase/migrations/20260501050000_move_security_definer_to_private_schema.sql`
+12. `supabase/migrations/20260501060000_storage_select_policies.sql`
 
 ### Scripts legacy (referencia, no ejecutar si ya se aplicaron las migraciones)
 
@@ -114,6 +116,40 @@ Documentación de validación: `docs/checklist-validacion-roles.md` y `docs/chec
 3. Valida login/logout, alta/edición/cierre de órdenes y descarga de informes.
 4. Verifica exportaciones Excel/ZIP con datos reales.
 5. Ejecuta checklist de `docs/checklist-produccion.md`.
+
+---
+
+## Offline-first (producción)
+
+- Cola de mutaciones en `pending_actions` con **deduplicación por OT** (si editas varias veces la misma OT offline, se consolida).
+- Procesado automático con **reintentos y backoff** al recuperar conexión.
+- Conflictos “oficina vs técnico” resueltos por **timestamp (updated_at vs clientUpdatedAt)** y registro en `sync_conflicts` (IndexedDB).
+- Requisito: aplicar la migración `20260606000000_add_updated_at_ordenes_trabajo.sql` para habilitar `updated_at`.
+- Tracking: aplicar `20260606010000_add_client_coords_and_gps_history.sql` para guardar coordenadas de clientes y el histórico GPS por OT.
+
+### Tracking en segundo plano (Android)
+
+- La app puede iniciar un **foreground service** para registrar puntos GPS cada 5 min aunque la app quede en segundo plano.
+- Los puntos se guardan localmente y se vuelcan a la cola `pending_gps` cuando la app vuelve al primer plano o hay conexión.
+
+### Android release (keystore)
+
+- Define `KEYSTORE_PASSWORD` y `KEY_PASSWORD` como variables de entorno para generar releases firmadas (no se guardan en el repo).
+
+### Checklist QA (offline/sync)
+
+- Editar OT con el móvil sin conexión → aparece “Cambios pendientes de sincronizar” y al volver internet se sincroniza solo.
+- Editar OT offline (técnico) y editar la misma OT online desde oficina → al volver internet, verificar que gana el último timestamp y que se registra conflicto.
+- Cerrar parte offline (fotos + firma) → se encola y se envía al reconectar.
+- Forzar cierre de la app con cambios pendientes → reabrir con internet y comprobar que se drena la cola.
+
+---
+
+## Tests
+
+```bash
+npm test
+```
 
 ---
 
