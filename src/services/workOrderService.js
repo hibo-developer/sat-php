@@ -895,7 +895,85 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
     throw new Error(`No se pudo guardar la valoración económica: ${updateError.message}`);
   }
 
-  const materialesTexto = materialesOrdenATexto(ordenActual.materiales_orden);
+  let materialesParaInforme = Array.isArray(ordenActual.materiales_orden) ? ordenActual.materiales_orden : [];
+
+  if (payload.coste_materiales_editable !== undefined) {
+    const round2 = (n) => Number(Number(n || 0).toFixed(2));
+    const objetivo = round2(costeMaterialesEditable);
+
+    const recalcularMateriales = (items, totalObjetivo) => {
+      const base = Array.isArray(items) ? items : [];
+
+      if (base.length === 0) {
+        if (totalObjetivo <= 0) return [];
+        return [{
+          orden_id: id,
+          nombre_material: 'Materiales',
+          cantidad: 1,
+          precio_unitario: totalObjetivo,
+        }];
+      }
+
+      const lineas = base.map((m) => ({
+        orden_id: id,
+        nombre_material: String(m.nombre_material || m.nombre || 'Material').trim() || 'Material',
+        cantidad: Math.max(1, Number.parseInt(m.cantidad, 10) || 1),
+        precio_unitario: round2(Number(m.precio_unitario || 0)),
+      }));
+
+      const totalBase = round2(lineas.reduce((acc, l) => acc + (l.cantidad * l.precio_unitario), 0));
+      if (Math.abs(totalBase - totalObjetivo) < 0.01) {
+        return null;
+      }
+
+      if (totalBase <= 0) {
+        const primera = lineas[0];
+        primera.precio_unitario = round2(totalObjetivo / Math.max(1, primera.cantidad));
+        return lineas;
+      }
+
+      const factor = totalObjetivo / totalBase;
+      const escaladas = lineas.map((l) => ({
+        ...l,
+        precio_unitario: round2(l.precio_unitario * factor),
+      }));
+
+      const totalEscalado = round2(escaladas.reduce((acc, l) => acc + (l.cantidad * l.precio_unitario), 0));
+      const diff = round2(totalObjetivo - totalEscalado);
+      if (Math.abs(diff) >= 0.01) {
+        const idx = escaladas.length - 1;
+        const ultima = escaladas[idx];
+        const ajusteUnitario = round2(diff / Math.max(1, ultima.cantidad));
+        ultima.precio_unitario = round2(Math.max(0, ultima.precio_unitario + ajusteUnitario));
+      }
+
+      return escaladas;
+    };
+
+    const nuevosMateriales = recalcularMateriales(materialesParaInforme, objetivo);
+    if (nuevosMateriales) {
+      const { error: errorDelete } = await supabase
+        .from('materiales_orden')
+        .delete()
+        .eq('orden_id', id);
+      if (errorDelete) {
+        throw new Error(`No se pudieron actualizar los materiales de la orden: ${errorDelete.message}`);
+      }
+
+      if (nuevosMateriales.length > 0) {
+        const { error: errorInsert } = await supabase
+          .from('materiales_orden')
+          .insert(nuevosMateriales);
+        if (errorInsert) {
+          throw new Error(`No se pudieron actualizar los materiales de la orden: ${errorInsert.message}`);
+        }
+      }
+
+      materialesParaInforme = nuevosMateriales;
+    }
+  }
+
+  const materialesTexto = materialesOrdenATexto(materialesParaInforme);
   const fasesParseadas = extraerFasesDesdeTareas(ordenActual.tareas_realizadas);
   const inicioInterv = fechaInicioIso
     || ordenActual.intervension_inicio
