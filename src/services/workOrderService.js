@@ -1027,6 +1027,8 @@ export async function editarParteFinalizado(ordenId, payload) {
   const supabase = obtenerClienteSupabase();
   const contextoUsuario = await obtenerContextoUsuarioSat(supabase);
   const id = limpiarTexto(ordenId);
+  let costeMaterialesEditableRecalculado = null;
+  let costeTotalRecalculado = null;
 
   if (!id) {
     throw new Error('ID de orden requerido para editar el parte.');
@@ -1181,27 +1183,55 @@ export async function editarParteFinalizado(ordenId, payload) {
       }
     }
 
-    const costeMaterialesPrevioCalc = (Array.isArray(ordenActual.materiales_orden) ? ordenActual.materiales_orden : [])
-      .reduce((acc, m) => acc + Number(m.cantidad || 0) * Number(m.precio_unitario || 0), 0);
-    const costeEditablePrevio = ordenActual.coste_materiales_editable != null
-      ? Number(ordenActual.coste_materiales_editable)
-      : Number(costeMaterialesPrevioCalc.toFixed(2));
+    const normalizarClaveMaterial = (m) => {
+      const nombre = String(m?.nombre_material || m?.nombre || m?.nombre_material || '').trim().toLowerCase();
+      const cantidad = Number.parseInt(m?.cantidad, 10);
+      const precio = Number.parseFloat(String(m?.precio_unitario ?? m?.precio ?? 0).replace(',', '.'));
+      if (!nombre || !Number.isFinite(cantidad) || cantidad <= 0) return null;
+      const precioNorm = Number.isFinite(precio) ? Number(precio.toFixed(2)) : 0;
+      return `${nombre}|${cantidad}|${precioNorm}`;
+    };
+
+    const materialesPrevios = Array.isArray(ordenActual.materiales_orden) ? ordenActual.materiales_orden : [];
+    const clavesPrevias = materialesPrevios.map(normalizarClaveMaterial).filter(Boolean).sort();
+    const clavesNuevas = materialesNormalizados.map(normalizarClaveMaterial).filter(Boolean).sort();
+    const materialesHanCambiado = JSON.stringify(clavesPrevias) !== JSON.stringify(clavesNuevas);
+
     const costeMaterialesNuevoCalc = materialesNormalizados.reduce(
       (acc, m) => acc + Number(m.cantidad) * Number(m.precio_unitario),
       0,
     );
+    const costeMaterialesNuevo = Number(costeMaterialesNuevoCalc.toFixed(2));
 
-    const debeActualizarCosteMateriales = ordenActual.coste_materiales_editable == null
-      || Math.abs(costeEditablePrevio - Number(costeMaterialesPrevioCalc.toFixed(2))) < 0.02;
+    if (materialesHanCambiado) {
+      const mecanicosIntervinieron = Math.max(1, Math.round(Number(ordenActual.mecanicos_intervinieron || 1)));
+      const tarifaManoObraHora = Number(ordenActual.tarifa_mano_obra_hora || 50);
+      const horasManoObra = Number(ordenActual.horas_mano_obra || 0);
+      const recargoFestivoPct = Number(ordenActual.recargo_festivo_pct || 0);
+      const recargoFueraHorarioPct = Number(ordenActual.recargo_fuera_horario_pct || 0);
+      const aplicaRecargoFestivo = Boolean(ordenActual.aplica_recargo_festivo);
+      const aplicaRecargoFueraHorario = Boolean(ordenActual.aplica_recargo_fuera_horario);
+      const porcentajeRecargoManoObra = (aplicaRecargoFestivo ? recargoFestivoPct : 0)
+        + (aplicaRecargoFueraHorario ? recargoFueraHorarioPct : 0);
+      const costeManoObraBase = Number((tarifaManoObraHora * horasManoObra * mecanicosIntervinieron).toFixed(2));
+      const costeManoObraTotal = ordenActual.coste_mano_obra_total != null
+        ? Number(ordenActual.coste_mano_obra_total)
+        : Number((costeManoObraBase * (1 + (porcentajeRecargoManoObra / 100))).toFixed(2));
+      const costeDesplazamientoTotal = Number(ordenActual.coste_desplazamiento_total || 0);
+      const costeTotalNuevo = Number((costeMaterialesNuevo + costeManoObraTotal + costeDesplazamientoTotal).toFixed(2));
 
-    if (debeActualizarCosteMateriales) {
       const { error: costeError } = await supabase
         .from('ordenes_trabajo')
-        .update({ coste_materiales_editable: Number(costeMaterialesNuevoCalc.toFixed(2)) })
+        .update({
+          coste_materiales_editable: costeMaterialesNuevo,
+          coste_total: costeTotalNuevo,
+        })
         .eq('id', id);
       if (costeError) {
         throw new Error(`No se pudo recalcular el coste de materiales: ${costeError.message}`);
       }
+      costeMaterialesEditableRecalculado = costeMaterialesNuevo;
+      costeTotalRecalculado = costeTotalNuevo;
     }
   }
 
@@ -1259,10 +1289,14 @@ export async function editarParteFinalizado(ordenId, payload) {
     ? Number(ordenActual.coste_mano_obra_total)
     : Number((costeManoObraBase * (1 + (porcentajeRecargoManoObra / 100))).toFixed(2));
   const costeDesplazamientoTotal = Number(ordenActual.coste_desplazamiento_total || 0);
-  const costeMaterialesEditable = Number(ordenActual.coste_materiales_editable || 0);
-  const costeTotal = ordenActual.coste_total != null
-    ? Number(ordenActual.coste_total)
-    : Number((costeMaterialesEditable + costeManoObraTotal + costeDesplazamientoTotal).toFixed(2));
+  const costeMaterialesEditable = costeMaterialesEditableRecalculado != null
+    ? costeMaterialesEditableRecalculado
+    : Number(ordenActual.coste_materiales_editable || 0);
+  const costeTotal = costeTotalRecalculado != null
+    ? costeTotalRecalculado
+    : (ordenActual.coste_total != null
+      ? Number(ordenActual.coste_total)
+      : Number((costeMaterialesEditable + costeManoObraTotal + costeDesplazamientoTotal).toFixed(2)));
 
   const valoracionEconomica = {
     costeMaterialesEditable,

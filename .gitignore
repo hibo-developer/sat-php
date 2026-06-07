@@ -8,6 +8,7 @@ release
 release-desktop
 release-desktop-fallback
 release-desktop-out-*
+release-desktop-installer-*
 release-desktop-verify
 release-desktop-verify2
 release-desktop-verify3
