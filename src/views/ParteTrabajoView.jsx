@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import {
   obtenerClientes,
@@ -14,7 +14,6 @@ import {
   estaOnline,
   intentarActualizarOrden,
 } from '../services/offlineSyncService';
-import { detenerTrackingBackground, iniciarTrackingBackground } from '../services/backgroundLocationService';
 import { abrirGoogleMaps } from '../services/externalNavigationService';
 import { tieneConfiguracionSupabase } from '../services/supabaseClient';
 
@@ -379,9 +378,8 @@ function limpiarBorradorParte() {
   } catch {}
 }
 
-export function ParteTrabajoView({ rolUsuario }) {
+export function ParteTrabajoView() {
   const location = useLocation();
-  const navigate = useNavigate();
   const prefillAplicadoRef = useRef(false);
   const borradorInicialRef = useRef();
   if (borradorInicialRef.current === undefined) {
@@ -883,13 +881,6 @@ export function ParteTrabajoView({ rolUsuario }) {
         distanciaMetros: null,
         minutosGeo: null,
       });
-      if (formulario.orden_id && formulario.tecnico_id) {
-        iniciarTrackingBackground({
-          ordenId: formulario.orden_id,
-          tecnicoId: formulario.tecnico_id,
-          intervalMinutes: 5,
-        }).catch(() => { /* noop */ });
-      }
       setMensaje('Inicio registrado con geolocalización.');
     } catch (err) {
       const inicioIso = new Date().toISOString();
@@ -901,13 +892,6 @@ export function ParteTrabajoView({ rolUsuario }) {
         distanciaMetros: null,
         minutosGeo: null,
       });
-      if (formulario.orden_id && formulario.tecnico_id) {
-        iniciarTrackingBackground({
-          ordenId: formulario.orden_id,
-          tecnicoId: formulario.tecnico_id,
-          intervalMinutes: 5,
-        }).catch(() => { /* noop */ });
-      }
       setFormulario((prev) => ({ ...prev, tiempo_empleado: '1' }));
       setMensaje('Inicio registrado con hora actual (sin geolocalización).');
       setError('');
@@ -968,7 +952,6 @@ export function ParteTrabajoView({ rolUsuario }) {
       setMensaje('Fin registrado con hora actual (sin geolocalización). Tiempo empleado calculado automáticamente.');
       setError('');
     } finally {
-      detenerTrackingBackground().catch(() => { /* noop */ });
       setCapturandoTiempo(false);
     }
   }
@@ -991,13 +974,6 @@ export function ParteTrabajoView({ rolUsuario }) {
         distanciaMetros: null,
         minutosGeo: null,
       });
-      if (formulario.orden_id && formulario.tecnico_id) {
-        iniciarTrackingBackground({
-          ordenId: formulario.orden_id,
-          tecnicoId: formulario.tecnico_id,
-          intervalMinutes: 5,
-        }).catch(() => { /* noop */ });
-      }
       setMensaje('Desplazamiento iniciado (origen fijo: Cotepa S.L., Paiporta).');
     } finally {
       setCapturandoDesplazamiento(false);
@@ -1198,7 +1174,6 @@ export function ParteTrabajoView({ rolUsuario }) {
       setFormulario((prev) => ({ ...prev, tiempo_empleado: String(minutosNetos) }));
       setError('No se pudo capturar ubicación final.');
     } finally {
-      detenerTrackingBackground().catch(() => { /* noop */ });
       setCapturandoIntervension(false);
     }
   }
@@ -1376,13 +1351,6 @@ export function ParteTrabajoView({ rolUsuario }) {
       setError('El cliente no tiene coordenadas ni dirección para abrir la ruta.');
       return;
     }
-    if (formulario.orden_id && formulario.tecnico_id) {
-      iniciarTrackingBackground({
-        ordenId: formulario.orden_id,
-        tecnicoId: formulario.tecnico_id,
-        intervalMinutes: 5,
-      }).catch(() => { /* noop */ });
-    }
     setError('');
     setMensaje('');
     if (modoNavegacion) {
@@ -1407,24 +1375,8 @@ export function ParteTrabajoView({ rolUsuario }) {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 
-  function abrirTracking() {
-    setMensaje('');
-    if (!formulario.orden_id || !formulario.tecnico_id) {
-      setError('Selecciona una OT y un técnico para abrir Tracking.');
-      return;
-    }
-    setError('');
-    navigate('/tracking', {
-      state: {
-        ordenId: formulario.orden_id,
-        tecnicoId: formulario.tecnico_id,
-      },
-    });
-  }
-
   function resetearFormulario() {
     ignorarGuardadoBorradorRef.current = true;
-    detenerTrackingBackground().catch(() => { /* noop */ });
     setFormulario(FORM_INICIAL);
     setDesplazamiento({
       inicioIso: null, finIso: null, ubicacionInicio: null, ubicacionFin: null,
@@ -1712,7 +1664,7 @@ export function ParteTrabajoView({ rolUsuario }) {
         {formulario.cliente_id && (
           <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 lg:col-span-2">
             <p className="text-xs font-semibold text-sky-900">Ruta al cliente</p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="mt-2 grid grid-cols-1 gap-2">
               <button
                 type="button"
                 onClick={abrirRutaCliente}
@@ -1720,14 +1672,6 @@ export function ParteTrabajoView({ rolUsuario }) {
                 className="w-full rounded-xl border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-800 disabled:opacity-60"
               >
                 Iniciar ruta al cliente
-              </button>
-              <button
-                type="button"
-                onClick={abrirTracking}
-                disabled={guardando || rolUsuario !== 'tecnico' || !formulario.orden_id || !formulario.tecnico_id}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
-              >
-                Abrir tracking
               </button>
             </div>
             <p className="mt-2 text-[11px] text-slate-600">
