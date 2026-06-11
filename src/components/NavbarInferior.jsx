@@ -32,8 +32,8 @@ export function NavbarInferior({
   });
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-marca-100 bg-white/95 px-3 pb-3 pt-2 shadow-2xl backdrop-blur lg:hidden">
-      <ul className="mx-auto flex max-w-md items-center justify-between gap-2 sm:max-w-lg">
+    <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-marca-100 bg-white/95 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 shadow-2xl backdrop-blur lg:hidden">
+      <ul className="mx-auto flex w-full max-w-screen-2xl items-center justify-between gap-2">
         {itemsVisibles.map((item) => {
           const Icono = item.icono;
           const activo = vistaActiva === item.key;

@@ -252,7 +252,7 @@ export default function App() {
   });
 
   return (
-    <div className="mx-auto min-h-screen w-full max-w-md px-4 pb-24 pt-5 lg:max-w-6xl lg:px-6 lg:pb-8">
+    <div className="mx-auto min-h-[100dvh] w-full max-w-screen-2xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-[calc(1.25rem+env(safe-area-inset-top))] md:px-5 lg:px-6 lg:pb-8">
       <header className="mb-4 overflow-hidden rounded-2xl border border-marca-100 bg-white shadow-tarjeta">
         <div className="h-2 w-full bg-cotepa-rojo-500" />
         <div className="flex items-center gap-3 p-3 lg:gap-4 lg:px-5 lg:py-4">
