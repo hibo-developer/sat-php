@@ -32,10 +32,15 @@ try {
   Ensure-Dir $releaseRoot
   Ensure-Dir $releaseFolder
   Ensure-Dir $releasePublicHtml
+  Ensure-Dir (Join-Path $releasePublicHtml "api")
+  Ensure-Dir (Join-Path $releasePublicHtml "api\\setup")
 
   Copy-Item -Path (Join-Path $distHosting "*") -Destination $releasePublicHtml -Recurse -Force
   Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\index.php") -Destination $releasePublicHtml -Force
   Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\.htaccess") -Destination $releasePublicHtml -Force
+  Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\api\index.php") -Destination (Join-Path $releasePublicHtml "api") -Force
+  Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\api\.htaccess") -Destination (Join-Path $releasePublicHtml "api") -Force
+  Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\api\setup\create_admin.php") -Destination (Join-Path $releasePublicHtml "api\\setup") -Force
   Copy-Item -Path (Join-Path $repoRoot "api") -Destination $releaseFolder -Recurse -Force
   Copy-Item -Path (Join-Path $repoRoot "config") -Destination $releaseFolder -Recurse -Force
   Copy-Item -Path (Join-Path $repoRoot "sql") -Destination $releaseFolder -Recurse -Force
@@ -44,7 +49,8 @@ try {
   Write-Host "Paquete listo para subir (contenido de '$releaseFolder')."
   Write-Host "Estructura generada:"
   Write-Host " - public_html/  -> frontend estático"
-  Write-Host " - api/          -> backend PHP"
+  Write-Host " - public_html/api/ -> entrada web a la API"
+  Write-Host " - api/             -> backend PHP (fuera de public_html)"
   Write-Host " - config/       -> configuración MySQL"
   Write-Host " - sql/          -> import SQL"
 }

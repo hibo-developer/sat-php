@@ -5,7 +5,8 @@ Versión adaptada del proyecto SAT para funcionar en **hosting compartido con PH
 ## Arquitectura actual
 
 - `public_html/` contiene el frontend estático listo para subir al hosting.
-- `api/` contiene el backend en PHP.
+- `public_html/api/` contiene la entrada web a la API (proxy PHP hacia `api/`).
+- `api/` contiene el backend en PHP (fuera de `public_html`).
 - `config/` contiene la configuración de conexión MySQL.
 - `sql/` contiene el script final de importación para MySQL.
 
@@ -84,6 +85,7 @@ La salida se crea en `release/<fecha>_hosting/` con esta forma:
 ```text
 release/<fecha>_hosting/
   public_html/
+    api/
   api/
   config/
   sql/

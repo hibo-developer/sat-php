@@ -6,6 +6,7 @@ La salida final para hosting compartido queda así:
 
 ```text
 public_html/   -> frontend estático generado por Vite
+public_html/api/ -> entrada web a la API (enlace hacia la carpeta /api)
 api/           -> backend PHP
 config/        -> conexión MySQL y variables de entorno
 sql/           -> script SQL importable
@@ -27,6 +28,7 @@ Eso crea una carpeta en `release/AAAA-MM-DD_HHMM_hosting/` con la estructura exa
 2. Importar `sql/dondominio_mysql.sql`.
 3. Subir el contenido de `release/*_hosting/` al hosting respetando esta estructura:
    - `public_html/`
+   - `public_html/api/`
    - `api/`
    - `config/`
    - `sql/`
@@ -53,6 +55,10 @@ Eso crea una carpeta en `release/AAAA-MM-DD_HHMM_hosting/` con la estructura exa
 ```
 
 6. Eliminar o cambiar `SAT_SETUP_TOKEN` cuando el admin ya exista.
+
+## Si tu hosting no permite variables de entorno
+
+Puedes crear `config/database.local.php` copiando `config/database.local.php.example` y poniendo ahí las credenciales.
 
 ## Qué hace esta adaptación
 

@@ -3,11 +3,12 @@ declare(strict_types=1);
 
 require __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
+use Sat\Api\App;
 use Sat\Api\Db;
 use Sat\Api\Http;
 use Sat\Api\Uuid;
 
-$tokenEnv = getenv('SAT_SETUP_TOKEN') ?: '';
+$tokenEnv = (string)App::config('setup_token', '');
 $tokenReq = $_SERVER['HTTP_X_SETUP_TOKEN'] ?? '';
 if ($tokenEnv === '' || $tokenReq === '' || !hash_equals($tokenEnv, $tokenReq)) {
     Http::json(['error' => 'No autorizado.'], 403);
@@ -55,4 +56,3 @@ try {
 }
 
 Http::json(['ok' => true, 'user_id' => $userId, 'email' => $email]);
-

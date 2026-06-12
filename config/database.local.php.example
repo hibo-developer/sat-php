@@ -1,0 +1,13 @@
+<?php
+declare(strict_types=1);
+
+return [
+    'host' => 'localhost',
+    'port' => 3306,
+    'database' => 'sat',
+    'username' => 'sat_user',
+    'password' => 'CAMBIAR_ESTA_PASSWORD',
+    'base_url' => 'https://tudominio.com',
+    'mail_from' => 'sat@tudominio.com',
+    'setup_token' => 'CAMBIAR_ESTE_TOKEN',
+];
