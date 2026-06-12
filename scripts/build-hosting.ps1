@@ -28,17 +28,25 @@ try {
   $releaseRoot = Join-Path $repoRoot "release"
   $stamp = Get-Date -Format "yyyy-MM-dd_HHmm"
   $releaseFolder = Join-Path $releaseRoot ($stamp + "_hosting")
+  $releasePublicHtml = Join-Path $releaseFolder "public_html"
   Ensure-Dir $releaseRoot
   Ensure-Dir $releaseFolder
+  Ensure-Dir $releasePublicHtml
 
-  Copy-Item -Path (Join-Path $distHosting "*") -Destination $releaseFolder -Recurse -Force
-  Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\index.php") -Destination $releaseFolder -Force
-  Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\.htaccess") -Destination $releaseFolder -Force
+  Copy-Item -Path (Join-Path $distHosting "*") -Destination $releasePublicHtml -Recurse -Force
+  Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\index.php") -Destination $releasePublicHtml -Force
+  Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\.htaccess") -Destination $releasePublicHtml -Force
   Copy-Item -Path (Join-Path $repoRoot "api") -Destination $releaseFolder -Recurse -Force
   Copy-Item -Path (Join-Path $repoRoot "config") -Destination $releaseFolder -Recurse -Force
   Copy-Item -Path (Join-Path $repoRoot "sql") -Destination $releaseFolder -Recurse -Force
+  Copy-Item -Path (Join-Path $repoRoot "DONDOMINIO.md") -Destination $releaseFolder -Force
 
   Write-Host "Paquete listo para subir (contenido de '$releaseFolder')."
+  Write-Host "Estructura generada:"
+  Write-Host " - public_html/  -> frontend estático"
+  Write-Host " - api/          -> backend PHP"
+  Write-Host " - config/       -> configuración MySQL"
+  Write-Host " - sql/          -> import SQL"
 }
 finally {
   Pop-Location

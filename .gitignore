@@ -16,6 +16,10 @@ release-desktop-verify3
 .env.*
 !.env.example
 supabase/.temp
+api/storage-data/*
+!api/storage-data/.gitignore
+public_html/*
+!public_html/.gitkeep
 
 # Archivos locales de desarrollo
 .vscode/settings.json
