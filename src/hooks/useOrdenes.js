@@ -7,7 +7,7 @@ import {
   editarParteFinalizado,
   finalizarOrdenTrabajo,
   obtenerOrdenesTrabajo,
-} from '../services/workOrderService';
+} from '../services/workOrderApiService';
 import { tieneConfiguracionSupabase } from '../services/supabaseClient';
 import {
   estaOnline,

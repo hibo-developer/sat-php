@@ -1,5 +1,4 @@
-import { obtenerClienteSupabase } from './supabaseClient';
-import { traducirErrorSupabase } from './erroresSupabase';
+import { fetchJson } from './apiClient';
 
 function limpiarTexto(valor) {
   return typeof valor === 'string' ? valor.trim() : '';
@@ -34,114 +33,27 @@ function validarPrecioOpcional(valor) {
   return numero;
 }
 
-function esErrorTablaMovimientosNoDisponible(error) {
-  if (!error) {
-    return false;
-  }
-
-  const codigo = limpiarTexto(error.code || '');
-  const mensaje = limpiarTexto(String(error.message || '')).toLowerCase();
-
-  if (codigo === '42P01' || codigo === 'PGRST205' || codigo === 'PGRST204') {
-    return true;
-  }
-
-  return mensaje.includes('inventario_movimientos') && mensaje.includes('schema cache');
-}
-
-async function registrarMovimientoInventario(supabase, payload) {
-  const { error } = await supabase.from('inventario_movimientos').insert(payload);
-
-  if (!error) {
-    return;
-  }
-
-  // Permite compatibilidad mientras no se haya aplicado la migracion de movimientos.
-  if (esErrorTablaMovimientosNoDisponible(error)) {
-    return;
-  }
-
-  throw new Error('No se pudo registrar movimiento.');
-}
-
-async function buscarMaterialPorNombre(supabase, nombre) {
-  const { data, error } = await supabase
-    .from('inventario_materiales')
-    .select('id, nombre, descripcion, unidad, stock_actual, precio_ref, activo')
-    .ilike('nombre', nombre)
-    .limit(1);
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo validar el material en inventario'));
-  }
-
-  if (!Array.isArray(data) || data.length === 0) {
-    return null;
-  }
-
-  return data[0];
+async function buscarMaterialPorNombre(nombre) {
+  const lista = await listarMaterialesInventario({ soloActivos: false });
+  const buscado = limpiarTexto(nombre).toLowerCase();
+  return lista.find((m) => limpiarTexto(m.nombre).toLowerCase() === buscado) || null;
 }
 
 export async function listarMaterialesInventario({ soloActivos = false } = {}) {
-  const supabase = obtenerClienteSupabase();
-
-  let consulta = supabase
-    .from('inventario_materiales')
-    .select('id, nombre, descripcion, unidad, stock_actual, precio_ref, activo, creado_en')
-    .order('nombre', { ascending: true });
-
-  if (soloActivos) {
-    consulta = consulta.eq('activo', true);
-  }
-
-  const { data, error } = await consulta;
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudieron obtener los materiales de inventario'));
-  }
-
-  return data || [];
+  const query = soloActivos ? '?soloActivos=1' : '';
+  const data = await fetchJson(`/inventario/materiales${query}`);
+  return Array.isArray(data) ? data : [];
 }
 
 export async function listarMovimientosInventario({ materialId = '', limite = 50 } = {}) {
-  const supabase = obtenerClienteSupabase();
   const materialIdNormalizado = limpiarTexto(materialId);
-
-  let consulta = supabase
-    .from('inventario_movimientos')
-    .select(
-      'id, material_id, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo, creado_en, inventario_materiales(nombre, unidad)'
-    )
-    .order('creado_en', { ascending: false })
-    .limit(limite);
-
-  if (materialIdNormalizado) {
-    consulta = consulta.eq('material_id', materialIdNormalizado);
-  }
-
-  const { data, error } = await consulta;
-
-  if (error) {
-    // Mantiene compatibilidad si la migracion aun no fue aplicada.
-    if (esErrorTablaMovimientosNoDisponible(error)) {
-      return {
-        soportado: false,
-        items: [],
-      };
-    }
-
-    throw new Error('No se pudo cargar historial.');
-  }
-
-  return {
-    soportado: true,
-    items: data || [],
-  };
+  const qp = new URLSearchParams();
+  if (materialIdNormalizado) qp.set('materialId', materialIdNormalizado);
+  qp.set('limite', String(limite));
+  return fetchJson(`/inventario/movimientos?${qp.toString()}`);
 }
 
 export async function crearMaterialInventario(payload) {
-  const supabase = obtenerClienteSupabase();
-
   const nombre = limpiarTexto(payload.nombre);
   const descripcion = limpiarTexto(payload.descripcion) || null;
   const unidad = limpiarTexto(payload.unidad) || 'ud';
@@ -153,29 +65,20 @@ export async function crearMaterialInventario(payload) {
     throw new Error('El nombre del material es obligatorio.');
   }
 
-  const { data, error } = await supabase
-    .from('inventario_materiales')
-    .insert({
+  return fetchJson('/inventario/materiales', {
+    method: 'POST',
+    body: {
       nombre,
       descripcion,
       unidad,
       stock_actual: stockActual,
       precio_ref: precioRef,
       activo,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo crear el material de inventario'));
-  }
-
-  return data;
+    },
+  });
 }
 
 export async function crearOActualizarMaterialInventario(payload) {
-  const supabase = obtenerClienteSupabase();
-
   const nombre = limpiarTexto(payload.nombre);
   const descripcion = limpiarTextoOpcional(payload.descripcion);
   const unidad = limpiarTexto(payload.unidad) || 'ud';
@@ -188,7 +91,7 @@ export async function crearOActualizarMaterialInventario(payload) {
     throw new Error('El nombre del material es obligatorio.');
   }
 
-  const existente = await buscarMaterialPorNombre(supabase, nombre);
+  const existente = await buscarMaterialPorNombre(nombre);
 
   if (!existente) {
     const creado = await crearMaterialInventario({
@@ -200,58 +103,32 @@ export async function crearOActualizarMaterialInventario(payload) {
       activo,
     });
 
-    await registrarMovimientoInventario(supabase, {
-      material_id: creado.id,
-      tipo_movimiento: 'alta',
-      cantidad: cantidadEntrada,
-      stock_anterior: 0,
-      stock_nuevo: creado.stock_actual,
-      motivo,
-    });
-
     return {
       accion: 'creado',
       material: creado,
     };
   }
 
-  const stockAnterior = Number(existente.stock_actual) || 0;
-  const stockNuevo = stockAnterior + cantidadEntrada;
+  const actualizado = await actualizarMaterialInventario(existente.id, {
+    descripcion,
+    unidad,
+    precio_ref: precioRef,
+    activo,
+  });
 
-  const { data, error } = await supabase
-    .from('inventario_materiales')
-    .update({
-      descripcion,
-      unidad,
-      stock_actual: stockNuevo,
-      precio_ref: precioRef,
-      activo,
-    })
-    .eq('id', existente.id)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo actualizar el material existente en inventario'));
-  }
-
-  await registrarMovimientoInventario(supabase, {
-    material_id: data.id,
-    tipo_movimiento: 'entrada',
+  await regularizarStockMaterialInventario(existente.id, {
+    modo: 'sumar',
     cantidad: cantidadEntrada,
-    stock_anterior: stockAnterior,
-    stock_nuevo: data.stock_actual,
     motivo,
   });
 
   return {
     accion: 'actualizado',
-    material: data,
+    material: actualizado,
   };
 }
 
 export async function actualizarMaterialInventario(id, payload) {
-  const supabase = obtenerClienteSupabase();
   const materialId = limpiarTexto(id);
 
   if (!materialId) {
@@ -288,22 +165,10 @@ export async function actualizarMaterialInventario(id, payload) {
     updatePayload.activo = Boolean(payload.activo);
   }
 
-  const { data, error } = await supabase
-    .from('inventario_materiales')
-    .update(updatePayload)
-    .eq('id', materialId)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo actualizar el material de inventario'));
-  }
-
-  return data;
+  return fetchJson(`/inventario/materiales/${materialId}`, { method: 'PUT', body: updatePayload });
 }
 
 export async function regularizarStockMaterialInventario(id, payload) {
-  const supabase = obtenerClienteSupabase();
   const materialId = limpiarTexto(id);
   const modo = limpiarTexto(payload.modo || 'fijar').toLowerCase();
   const motivo = limpiarTexto(payload.motivo);
@@ -316,73 +181,32 @@ export async function regularizarStockMaterialInventario(id, payload) {
     throw new Error('Debes indicar un motivo para la regularizacion.');
   }
 
-  const { data: materialDb, error: errorMaterial } = await supabase
-    .from('inventario_materiales')
-    .select('id, stock_actual')
-    .eq('id', materialId)
-    .single();
-
-  if (errorMaterial || !materialDb) {
-    throw new Error(traducirErrorSupabase(errorMaterial, 'No se encontro el material a regularizar'));
-  }
-
-  const stockAnterior = Number(materialDb.stock_actual) || 0;
-  let stockNuevo = stockAnterior;
-  let cantidadMovimiento = 0;
-
   if (modo === 'fijar') {
-    const nuevoStock = validarEnteroNoNegativo(payload.cantidad, 'El stock regularizado');
-    stockNuevo = nuevoStock;
-    cantidadMovimiento = stockNuevo - stockAnterior;
+    validarEnteroNoNegativo(payload.cantidad, 'El stock regularizado');
   } else if (modo === 'sumar') {
-    const cantidad = validarEnteroNoNegativo(payload.cantidad, 'La cantidad a sumar');
-    stockNuevo = stockAnterior + cantidad;
-    cantidadMovimiento = cantidad;
+    validarEnteroNoNegativo(payload.cantidad, 'La cantidad a sumar');
   } else if (modo === 'restar') {
-    const cantidad = validarEnteroNoNegativo(payload.cantidad, 'La cantidad a restar');
-    if (cantidad > stockAnterior) {
-      throw new Error('No puedes restar mas stock del disponible.');
-    }
-    stockNuevo = stockAnterior - cantidad;
-    cantidadMovimiento = -cantidad;
+    validarEnteroNoNegativo(payload.cantidad, 'La cantidad a restar');
   } else {
     throw new Error('El modo de regularizacion no es valido.');
   }
 
-  const { data, error } = await supabase
-    .from('inventario_materiales')
-    .update({ stock_actual: stockNuevo })
-    .eq('id', materialId)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo regularizar el stock del material'));
-  }
-
-  await registrarMovimientoInventario(supabase, {
-    material_id: materialId,
-    tipo_movimiento: 'regularizacion',
-    cantidad: cantidadMovimiento,
-    stock_anterior: stockAnterior,
-    stock_nuevo: stockNuevo,
-    motivo,
+  return fetchJson(`/inventario/materiales/${materialId}/regularizar`, {
+    method: 'POST',
+    body: {
+      modo,
+      cantidad: validarEnteroNoNegativo(payload.cantidad, 'La cantidad'),
+      motivo,
+    },
   });
-
-  return data;
 }
 
 export async function eliminarMaterialInventario(id) {
-  const supabase = obtenerClienteSupabase();
   const materialId = limpiarTexto(id);
 
   if (!materialId) {
     throw new Error('El material que intentas eliminar no es valido.');
   }
 
-  const { error } = await supabase.from('inventario_materiales').delete().eq('id', materialId);
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo eliminar el material de inventario'));
-  }
+  await fetchJson(`/inventario/materiales/${materialId}`, { method: 'DELETE', body: {} });
 }

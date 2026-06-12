@@ -20,7 +20,8 @@ import db from './offlineDb';
 import {
   actualizarOrdenTrabajo,
   eliminarOrdenTrabajo,
-} from './workOrderService';
+} from './workOrderApiService';
+import { fetchJson } from './apiClient';
 import { crearParteTrabajo } from './parteTrabajoService';
 import { insertarPuntoGps } from './ordenGpsService';
 
@@ -652,14 +653,10 @@ if (typeof window !== 'undefined') {
 
 async function obtenerOrdenTrabajoActualizadaAt(ordenId) {
   try {
-    const supabase = await import('./supabaseClient').then((m) => m.obtenerClienteSupabase());
-    const { data, error } = await supabase
-      .from('ordenes_trabajo')
-      .select('id, updated_at')
-      .eq('id', ordenId)
-      .maybeSingle();
-    if (error) return null;
-    return data || null;
+    const lista = await fetchJson('/ordenes');
+    const orden = Array.isArray(lista) ? lista.find((o) => o.id === ordenId) : null;
+    if (!orden) return null;
+    return { id: orden.id, updated_at: orden.updated_at || null };
   } catch {
     return null;
   }

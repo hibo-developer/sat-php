@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import logoCotepaUrl from '../assets/cotepa.jpg';
-import { obtenerClienteSupabase, obtenerUrlFirmadaStorage } from './supabaseClient';
+import { obtenerUrlFirmadaStorage } from './supabaseClient';
+import { fetchJson } from './apiClient';
 
 // =====================================================================
 // Constantes de diseño - paleta corporativa COTEPA
@@ -994,31 +995,30 @@ export function obtenerUrlPublicaInformeParte(clienteId, parteId) {
 }
 
 async function subirPdfInforme({ pdfBlob, nombreArchivo, clienteId, tecnicoId, ordenId }) {
-  const supabase = obtenerClienteSupabase();
-  const ruta = `${clienteId}/${tecnicoId}/${ordenId}/${nombreArchivo}`;
-  const { error } = await supabase.storage
-    .from('informes-partes')
-    .upload(ruta, pdfBlob, { upsert: true, contentType: 'application/pdf', cacheControl: '0' });
-  if (error) {
-    throw new Error(`No se pudo subir el PDF a Storage: ${error.message}`);
+  const c = String(clienteId || 'tmp').trim() || 'tmp';
+  const t = String(tecnicoId || 'tmp').trim() || 'tmp';
+  const o = String(ordenId || 'tmp').trim() || 'tmp';
+  const rutaPrefijo = `${c}/${t}/${o}`;
+  const form = new FormData();
+  form.append('bucket', 'informes-partes');
+  form.append('pathPrefix', rutaPrefijo);
+  form.append('file', pdfBlob, nombreArchivo);
+  const data = await fetchJson('/storage/upload', { method: 'POST', body: form });
+  if (!data?.reference) {
+    throw new Error('No se pudo subir el PDF.');
   }
-  return `sb://informes-partes/${ruta}`;
+  return data.reference;
 }
 
 async function obtenerSecuencialDiario(fechaIso) {
   try {
-    const supabase = obtenerClienteSupabase();
     const base = new Date(fechaIso);
     const hoy = Number.isFinite(base.getTime()) ? base : new Date();
-    const inicio = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate())).toISOString();
-    const fin = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate() + 1)).toISOString();
-    const { count } = await supabase
-      .from('ordenes_trabajo')
-      .select('id', { count: 'exact', head: true })
-      .eq('estado', 'finalizado')
-      .gte('fecha_fin', inicio)
-      .lt('fecha_fin', fin);
-    return (count || 0) + 1;
+    const key = `${hoy.getUTCFullYear()}-${hoy.getUTCMonth()}-${hoy.getUTCDate()}`;
+    const raw = localStorage.getItem(`sat_secuencial_${key}`) || '0';
+    const next = Number.parseInt(raw, 10) + 1;
+    localStorage.setItem(`sat_secuencial_${key}`, String(next));
+    return next;
   } catch {
     return 1;
   }

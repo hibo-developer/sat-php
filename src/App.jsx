@@ -3,11 +3,11 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { NavbarInferior } from './components/NavbarInferior';
 import { IndicadorSync } from './components/IndicadorSync';
 import { CambiarPasswordModal } from './components/CambiarPasswordModal';
-import { MfaModal } from './components/MfaModal';
 import { useAuthSession } from './hooks/useAuthSession';
 import { precargarCatalogosOffline } from './services/catalogosService';
 import { estaOnline } from './services/offlineSyncService';
-import { obtenerClienteSupabase, tieneConfiguracionSupabase } from './services/supabaseClient';
+import { fetchJson } from './services/apiClient';
+import { tieneConfiguracionSupabase } from './services/supabaseClient';
 import logoCotepa from './assets/cotepa.jpg';
 import { AdminView } from './views/AdminView';
 import { AccesoView } from './views/AccesoView';
@@ -94,7 +94,6 @@ export default function App() {
   const [nombreVisibleUsuario, setNombreVisibleUsuario] = useState('');
   const [verificandoRol, setVerificandoRol] = useState(false);
   const [mostrarCambiarPassword, setMostrarCambiarPassword] = useState(false);
-  const [mostrarMfa, setMostrarMfa] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const {
@@ -149,21 +148,13 @@ export default function App() {
       setVerificandoRol(true);
 
       try {
-        const supabase = obtenerClienteSupabase();
-        const { data, error: perfilError } = await supabase
-          .from('usuarios_sat')
-          .select('rol, nombre_visible')
-          .eq('user_id', sesion.user.id)
-          .maybeSingle();
-
-        if (perfilError) {
-          throw perfilError;
-        }
+        const data = await fetchJson('/auth/me');
+        const perfil = data?.perfil || null;
 
         if (!cancelado) {
-          setRolUsuario(data?.rol || 'tecnico');
-          setNombreVisibleUsuario(data?.nombre_visible || '');
-          guardarPerfilUsuarioCacheado(sesion.user.id, data);
+          setRolUsuario(perfil?.rol || 'tecnico');
+          setNombreVisibleUsuario(perfil?.nombre_visible || '');
+          guardarPerfilUsuarioCacheado(sesion.user.id, perfil);
         }
       } catch {
         if (!cancelado) {
@@ -283,13 +274,6 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMostrarMfa(true)}
-                  className="rounded-xl border border-marca-100 bg-white px-3 py-2 text-xs font-bold text-marca-700"
-                >
-                  2FA
-                </button>
-                <button
-                  type="button"
                   onClick={() => logout()}
                   className="rounded-xl border border-marca-100 bg-marca-50 px-3 py-2 text-xs font-bold text-marca-700"
                 >
@@ -385,11 +369,6 @@ export default function App() {
       <CambiarPasswordModal
         abierto={mostrarCambiarPassword}
         onCerrar={() => setMostrarCambiarPassword(false)}
-      />
-
-      <MfaModal
-        abierto={mostrarMfa}
-        onCerrar={() => setMostrarMfa(false)}
       />
     </div>
   );

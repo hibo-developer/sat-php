@@ -1,27 +1,17 @@
-import { createClient } from '@supabase/supabase-js';
+import { fetchJson, obtenerUrlFirmadaStorageApi } from './apiClient';
 
 const runtimeConfig =
   typeof window !== 'undefined' && window.__APP_CONFIG__ ? window.__APP_CONFIG__ : null;
-const supabaseUrl = runtimeConfig?.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = runtimeConfig?.SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
-const cacheSignedUrls = new Map();
+const apiBaseUrl = runtimeConfig?.API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api';
 
-// Cliente de Supabase centralizado para usar en servicios del dominio.
-export const supabase =
-  supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+export const supabase = null;
 
 export function tieneConfiguracionSupabase() {
-  return Boolean(supabase);
+  return Boolean(apiBaseUrl);
 }
 
 export function obtenerClienteSupabase() {
-  if (!supabase) {
-    throw new Error(
-      'Falta configurar Supabase. Revisa app-config.js (hosting) o VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY en tu archivo .env'
-    );
-  }
-
-  return supabase;
+  throw new Error('Supabase no está disponible en el hosting PHP/MySQL.');
 }
 
 export function parsearReferenciaStorage(valor) {
@@ -61,27 +51,10 @@ export async function obtenerUrlFirmadaStorage(referencia, opciones = {}) {
     return String(referencia || '').trim();
   }
 
-  const clave = `${ref.bucket}/${ref.path}`;
-  const ahora = Date.now();
-  const cached = cacheSignedUrls.get(clave);
-  if (cached && cached.url && cached.expiresAt && cached.expiresAt > ahora + 15_000) {
-    return cached.url;
-  }
-
-  const supabase = obtenerClienteSupabase();
-  const { data, error } = await supabase.functions.invoke('storage-signed-url', {
-    body: {
-      bucket: ref.bucket,
-      path: ref.path,
-      expiresIn: Math.max(60, Math.min(3600, Number(expiresIn) || 600)),
-    },
-  });
-
-  if (error || !data?.url) {
+  try {
+    const url = await obtenerUrlFirmadaStorageApi(ref, { expiresIn });
+    return url || String(referencia || '').trim();
+  } catch {
     return String(referencia || '').trim();
   }
-
-  const expMs = (Math.max(60, Math.min(3600, Number(expiresIn) || 600)) * 1000);
-  cacheSignedUrls.set(clave, { url: data.url, expiresAt: ahora + expMs });
-  return data.url;
 }

@@ -1,56 +1,18 @@
-import { obtenerClienteSupabase } from './supabaseClient';
-import { traducirErrorSupabase } from './erroresSupabase';
+import { fetchJson } from './apiClient';
 
 export async function listarEquipos() {
-  const supabase = obtenerClienteSupabase();
-
-  const { data, error } = await supabase
-    .from('equipos')
-    .select('id, cliente_id, nombre, marca, modelo, numero_serie, ultima_revision, clientes ( nombre )')
-    .order('nombre', { ascending: true });
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudieron obtener los equipos'));
-  }
-
-  return data || [];
+  const data = await fetchJson('/equipos');
+  return Array.isArray(data) ? data : [];
 }
 
 export async function crearEquipo(payload) {
-  const supabase = obtenerClienteSupabase();
-
-  const { data, error } = await supabase.from('equipos').insert(payload).select().single();
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo crear el equipo'));
-  }
-
-  return data;
+  return fetchJson('/equipos', { method: 'POST', body: payload });
 }
 
 export async function actualizarEquipo(idEquipo, payload) {
-  const supabase = obtenerClienteSupabase();
-
-  const { data, error } = await supabase
-    .from('equipos')
-    .update(payload)
-    .eq('id', idEquipo)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo actualizar el equipo'));
-  }
-
-  return data;
+  return fetchJson(`/equipos/${idEquipo}`, { method: 'PUT', body: payload });
 }
 
 export async function eliminarEquipo(idEquipo) {
-  const supabase = obtenerClienteSupabase();
-
-  const { error } = await supabase.from('equipos').delete().eq('id', idEquipo);
-
-  if (error) {
-    throw new Error(traducirErrorSupabase(error, 'No se pudo eliminar el equipo'));
-  }
+  await fetchJson(`/equipos/${idEquipo}`, { method: 'DELETE', body: {} });
 }

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./workOrderService', () => ({
+vi.mock('./workOrderApiService', () => ({
   actualizarOrdenTrabajo: vi.fn(async () => ({})),
   eliminarOrdenTrabajo: vi.fn(async () => ({})),
 }));

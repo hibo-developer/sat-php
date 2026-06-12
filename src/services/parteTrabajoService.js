@@ -1,11 +1,10 @@
-import { obtenerClienteSupabase } from './supabaseClient';
+import { fetchJson } from './apiClient';
 import {
   limpiarTexto,
   validarMinutos,
   validarPrioridad,
   validarTextoRequerido,
 } from './satValidation';
-import { crearOrdenTrabajo } from './workOrderService';
 
 function parsearMateriales(textoMateriales) {
   if (!textoMateriales.trim()) {
@@ -351,7 +350,7 @@ async function resolverBlobImagen(fuente) {
   throw new Error('Formato de imagen no válido para subir a Storage.');
 }
 
-async function subirFirmaClienteStorage(supabase, { firmaDataUrl, clienteId, tecnicoId }) {
+async function subirFirmaClienteStorage({ firmaDataUrl, clienteId, tecnicoId }) {
   if (!esDataUrlImagen(firmaDataUrl)) {
     return firmaDataUrl;
   }
@@ -365,26 +364,16 @@ async function subirFirmaClienteStorage(supabase, { firmaDataUrl, clienteId, tec
 
   const extension = blobFirma.type === 'image/jpeg' ? 'jpg' : 'png';
   const nombreArchivo = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
-  const rutaArchivo = `${clienteId}/${tecnicoId}/${nombreArchivo}`;
-
-  const { error: errorSubida } = await supabase.storage
-    .from('firmas-clientes')
-    .upload(rutaArchivo, blobFirma, {
-      upsert: false,
-      contentType: blobFirma.type || 'image/png',
-      cacheControl: '3600',
-    });
-
-  if (errorSubida) {
-    throw new Error(
-      `No se pudo subir la firma del cliente a Storage. Verifica bucket/policies de firmas-clientes. (${errorSubida.message})`,
-    );
-  }
-
-  return `sb://firmas-clientes/${rutaArchivo}`;
+  const rutaPrefijo = `${clienteId}/${tecnicoId}`;
+  const form = new FormData();
+  form.append('bucket', 'firmas-clientes');
+  form.append('pathPrefix', rutaPrefijo);
+  form.append('file', blobFirma, nombreArchivo);
+  const data = await fetchJson('/storage/upload', { method: 'POST', body: form });
+  return data?.reference || '';
 }
 
-export async function subirFotosIntervencionStorage(supabase, { fotos, clienteId, tecnicoId, ordenId }) {
+export async function subirFotosIntervencionStorage({ fotos, clienteId, tecnicoId, ordenId }) {
   const listaFotos = Array.isArray(fotos) ? fotos : [];
   if (listaFotos.length === 0) {
     return [];
@@ -403,60 +392,48 @@ export async function subirFotosIntervencionStorage(supabase, { fotos, clienteId
 
     const extension = blobFoto.type === 'image/jpeg' ? 'jpg' : blobFoto.type === 'image/webp' ? 'webp' : 'png';
     const nombreArchivo = `${Date.now()}-${indice + 1}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
-    const rutaArchivo = `${clienteId}/${tecnicoId}/${ordenId}/${nombreArchivo}`;
-
-    const { error: errorSubida } = await supabase.storage
-      .from('fotos-intervenciones')
-      .upload(rutaArchivo, blobFoto, {
-        upsert: false,
-        contentType: blobFoto.type || 'image/png',
-        cacheControl: '3600',
-      });
-
-    if (errorSubida) {
-      throw new Error(`No se pudo subir la foto ${indice + 1} de la intervención: ${errorSubida.message}`);
+    const rutaPrefijo = `${clienteId}/${tecnicoId}/${ordenId}`;
+    const form = new FormData();
+    form.append('bucket', 'fotos-intervenciones');
+    form.append('pathPrefix', rutaPrefijo);
+    form.append('file', blobFoto, nombreArchivo);
+    const data = await fetchJson('/storage/upload', { method: 'POST', body: form });
+    if (!data?.reference) {
+      throw new Error(`No se pudo subir la foto ${indice + 1} de la intervención.`);
     }
-
-    urls.push(`sb://fotos-intervenciones/${rutaArchivo}`);
+    urls.push(data.reference);
   }
 
   return urls;
 }
 
 export async function obtenerOrdenesAbiertasParaParte(filtros = {}) {
-  const supabase = obtenerClienteSupabase();
   const clienteId = limpiarTexto(filtros.cliente_id);
   const tecnicoId = limpiarTexto(filtros.tecnico_id);
-
-  let consulta = supabase
-    .from('ordenes_trabajo')
-    .select('id, numero_ticket, cliente_id, equipo_id, tecnico_id, descripcion_averia, estado, prioridad, fecha_inicio')
-    .in('estado', ['pendiente', 'en_proceso', 'pausado'])
-    .order('fecha_inicio', { ascending: false });
-
-  if (clienteId) {
-    consulta = consulta.eq('cliente_id', clienteId);
-  }
-
-  if (tecnicoId) {
-    consulta = consulta.eq('tecnico_id', tecnicoId);
-  }
-
-  const { data, error } = await consulta;
-
-  if (error) {
-    throw new Error(`No se pudieron obtener las ordenes abiertas para el parte: ${error.message}`);
-  }
-
-  return data || [];
+  const data = await fetchJson('/ordenes');
+  const lista = Array.isArray(data) ? data : [];
+  const abiertas = new Set(['pendiente', 'en_proceso', 'pausado']);
+  return lista
+    .filter((o) => abiertas.has(String(o.estado || '').toLowerCase()))
+    .filter((o) => (clienteId ? o.cliente_id === clienteId : true))
+    .filter((o) => (tecnicoId ? o.tecnico_id === tecnicoId : true))
+    .map((o) => ({
+      id: o.id,
+      numero_ticket: o.numero_ticket,
+      cliente_id: o.cliente_id || o.clientes?.id,
+      equipo_id: o.equipo_id || o.equipos?.id || null,
+      tecnico_id: o.tecnico_id || o.tecnicos?.id,
+      descripcion_averia: o.descripcion_averia,
+      estado: o.estado,
+      prioridad: o.prioridad,
+      fecha_inicio: o.fecha_inicio,
+    }));
 }
 
 export async function crearParteTrabajo(payload) {
-  const supabase = obtenerClienteSupabase();
   const ordenIdEntrada = limpiarTexto(payload.orden_id);
-  let ordenIdTrabajo = ordenIdEntrada;
-  let clienteId = limpiarTexto(payload.cliente_id);
-  let equipoId = limpiarTexto(payload.equipo_id) || null;
+  const clienteId = limpiarTexto(payload.cliente_id) || 'tmp';
+  const equipoId = limpiarTexto(payload.equipo_id) || null;
   const clienteNombreEntrada = normalizarNombreEntidad(payload.cliente_nombre);
   const equipoNombreEntrada = normalizarNombreEntidad(payload.equipo_nombre);
   const tecnicoId = limpiarTexto(payload.tecnico_id);
@@ -488,107 +465,6 @@ export async function crearParteTrabajo(payload) {
     throw new Error('La firma del cliente es obligatoria para registrar el parte.');
   }
 
-  if (!ordenIdEntrada && !clienteId && clienteNombreEntrada) {
-    const cliente = await resolverOCrearClientePorNombre(supabase, clienteNombreEntrada);
-    clienteId = cliente?.id || '';
-  }
-
-  if (!clienteId) {
-    throw new Error('Debes seleccionar o indicar un cliente para registrar el parte.');
-  }
-
-  if (!ordenIdEntrada && !equipoId && equipoNombreEntrada) {
-    const equipo = await resolverOCrearEquipoPorNombre(supabase, {
-      clienteId,
-      nombreEquipo: equipoNombreEntrada,
-    });
-    equipoId = equipo?.id || null;
-  }
-
-  const [clienteRsp, tecnicoRsp, equipoRsp] = await Promise.all([
-    supabase.from('clientes').select('id').eq('id', clienteId).maybeSingle(),
-    supabase.from('tecnicos').select('id, activo').eq('id', tecnicoId).maybeSingle(),
-    equipoId
-      ? supabase.from('equipos').select('id, cliente_id').eq('id', equipoId).maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-  ]);
-
-  if (clienteRsp.error) {
-    throw new Error(`No se pudo validar el cliente del parte: ${clienteRsp.error.message}`);
-  }
-
-  if (!clienteRsp.data) {
-    throw new Error('El cliente seleccionado para el parte no existe.');
-  }
-
-  if (tecnicoRsp.error) {
-    throw new Error(`No se pudo validar el técnico del parte: ${tecnicoRsp.error.message}`);
-  }
-
-  if (!tecnicoRsp.data) {
-    throw new Error('El técnico seleccionado para el parte no existe.');
-  }
-
-  if (!tecnicoRsp.data.activo) {
-    throw new Error('El técnico seleccionado está inactivo.');
-  }
-
-  if (equipoRsp.error) {
-    throw new Error(`No se pudo validar el equipo del parte: ${equipoRsp.error.message}`);
-  }
-
-  if (equipoId && !equipoRsp.data) {
-    throw new Error('El equipo seleccionado para el parte no existe.');
-  }
-
-  if (equipoRsp.data && equipoRsp.data.cliente_id !== clienteId) {
-    throw new Error('El equipo seleccionado no pertenece al cliente del parte.');
-  }
-
-  if (ordenIdEntrada) {
-    const { data: ordenActual, error: ordenActualError } = await supabase
-      .from('ordenes_trabajo')
-      .select('id, cliente_id, equipo_id, tecnico_id, estado')
-      .eq('id', ordenIdEntrada)
-      .maybeSingle();
-
-    if (ordenActualError) {
-      throw new Error(`No se pudo validar la orden seleccionada: ${ordenActualError.message}`);
-    }
-
-    if (!ordenActual) {
-      throw new Error('La orden seleccionada no existe.');
-    }
-
-    if (ordenActual.estado === 'finalizado') {
-      throw new Error('La orden seleccionada ya esta finalizada. El parte debe registrarse sobre una orden abierta.');
-    }
-
-    if (ordenActual.cliente_id !== clienteId) {
-      throw new Error('La orden seleccionada no pertenece al cliente del parte.');
-    }
-
-    if (ordenActual.tecnico_id !== tecnicoId) {
-      throw new Error('La orden seleccionada no esta asignada al tecnico elegido.');
-    }
-
-    if ((ordenActual.equipo_id || null) !== equipoId) {
-      throw new Error('El equipo del parte no coincide con el equipo de la orden seleccionada.');
-    }
-  } else {
-    const ordenImprevista = await crearOrdenTrabajo({
-      cliente_id: clienteId,
-      equipo_id: equipoId,
-      tecnico_id: tecnicoId,
-      descripcion_averia: descripcionProblema,
-      prioridad,
-      estado: 'pendiente',
-      fecha_inicio: fechaInicio,
-    });
-
-    ordenIdTrabajo = ordenImprevista.id;
-  }
-
   const materialesInventarioNormalizados = materialesInventarioEntrada.map((item, indice) => {
     const materialId = limpiarTexto(item.material_id);
     const cantidad = Number.parseInt(item.cantidad, 10);
@@ -613,156 +489,51 @@ export async function crearParteTrabajo(payload) {
   }, new Map());
 
   const inventarioIds = [...cantidadesPorMaterial.keys()];
-  let inventarioMap = new Map();
 
-  if (inventarioIds.length > 0) {
-    const { data: inventarioData, error: inventarioError } = await supabase
-      .from('inventario_materiales')
-      .select('id, nombre, precio_ref, stock_actual, activo')
-      .in('id', inventarioIds);
+  const prefijoCliente = clienteId || 'tmp';
+  const prefijoOrden = ordenIdEntrada || 'tmp';
 
-    if (inventarioError) {
-      throw new Error(`No se pudo validar el inventario de materiales: ${inventarioError.message}`);
-    }
-
-    inventarioMap = new Map((inventarioData || []).map((item) => [item.id, item]));
-
-    inventarioIds.forEach((materialId) => {
-      const cantidadTotal = cantidadesPorMaterial.get(materialId) || 0;
-      const materialDb = inventarioMap.get(materialId);
-      if (!materialDb) {
-        throw new Error('Uno de los materiales seleccionados ya no existe en inventario.');
-      }
-
-      if (!materialDb.activo) {
-        throw new Error(`El material ${materialDb.nombre} esta inactivo en inventario.`);
-      }
-
-      if (Number(materialDb.stock_actual) < cantidadTotal) {
-        throw new Error(`Stock insuficiente para ${materialDb.nombre}. Disponible: ${materialDb.stock_actual}.`);
-      }
-    });
-  }
-
-  const firmaUrl = await subirFirmaClienteStorage(supabase, {
+  const firmaUrl = await subirFirmaClienteStorage({
     firmaDataUrl: firmaEntrada,
-    clienteId,
+    clienteId: prefijoCliente,
     tecnicoId,
   });
 
   if (!firmaUrl) {
-    throw new Error('No se pudo obtener la URL pública de la firma del cliente.');
+    throw new Error('No se pudo obtener la referencia de la firma del cliente.');
   }
 
-  const fotosIntervencionUrls = await subirFotosIntervencionStorage(supabase, {
+  const fotosIntervencionUrls = await subirFotosIntervencionStorage({
     fotos: fotosIntervencionEntrada,
-    clienteId,
+    clienteId: prefijoCliente,
     tecnicoId,
-    ordenId: ordenIdTrabajo,
+    ordenId: prefijoOrden,
   });
 
-  const descripcionLibre = String(payload?.tareas_realizadas_libre || '').trim();
-  const bloquesTareas = [descripcionLibre || 'Parte registrado desde movilidad'];
-  if (resumenGeo) {
-    bloquesTareas.push(resumenGeo);
-  }
-  bloquesTareas.push(`Firmado por: ${nombreFirmante}`);
-  if (fotosIntervencionUrls.length > 0) {
-    bloquesTareas.push(`Fotos intervención: ${fotosIntervencionUrls.join(' | ')}`);
-  }
-
-  const mecanicosIntervinieronRaw = payload?.mecanicos_intervinieron;
-  const mecanicosIntervinieron = Math.max(
-    1,
-    Number.parseInt(String(mecanicosIntervinieronRaw || '').trim() || '1', 10),
-  );
-
-  const ordenPayload = {
-    descripcion_averia: descripcionProblema,
-    tareas_realizadas: bloquesTareas.join(' | '),
-    tiempo_empleado_minutos: tiempoEmpleadoMinutos,
-    mecanicos_intervinieron: mecanicosIntervinieron,
-    estado: 'finalizado',
-    prioridad,
-    foto_url: fotosIntervencionUrls[0] || null,
-    firma_url: firmaUrl,
-    fecha_inicio: fechaInicio,
-    fecha_fin: fechaFin,
-  };
-
-  // Kilometraje facturable (ida + vuelta) calculado desde la sede de
-  // Cotepa hasta la ubicación del cliente al pulsar Inicio Intervención
-  // o Fin Desplazamiento. Si la fase de desplazamiento no aportó
-  // distancia (p. ej. sin geolocalización), el campo se deja sin tocar
-  // para que el administrador pueda introducirlo manualmente desde el
-  // panel de valoración.
-  const distanciaDesplazamientoMetros = Number(payload?.desplazamiento?.distanciaMetros);
-  if (Number.isFinite(distanciaDesplazamientoMetros) && distanciaDesplazamientoMetros > 0) {
-    ordenPayload.km_desplazamiento_facturables = Number(((distanciaDesplazamientoMetros * 2) / 1000).toFixed(2));
-  }
-
-  const { data: orden, error: errorOrden } = await supabase
-    .from('ordenes_trabajo')
-    .update(ordenPayload)
-    .eq('id', ordenIdTrabajo)
-    .select()
-    .single();
-
-  if (errorOrden) {
-    throw new Error(`No se pudo registrar el parte de trabajo: ${errorOrden.message}`);
-  }
-
-  const { error: limpiarMaterialesError } = await supabase
-    .from('materiales_orden')
-    .delete()
-    .eq('orden_id', orden.id);
-
-  if (limpiarMaterialesError) {
-    throw new Error(`No se pudo preparar el detalle de materiales del parte: ${limpiarMaterialesError.message}`);
-  }
-
-  for (const [materialId, cantidadTotal] of cantidadesPorMaterial.entries()) {
-    const materialDb = inventarioMap.get(materialId);
-    const { error: descontarError } = await supabase
-      .from('inventario_materiales')
-      .update({ stock_actual: (materialDb?.stock_actual || 0) - cantidadTotal })
-      .eq('id', materialId)
-      .gte('stock_actual', cantidadTotal);
-
-    if (descontarError) {
-      throw new Error(`No se pudo descontar stock de inventario: ${descontarError.message}`);
-    }
-  }
-
-  const materialesInventario = materialesInventarioNormalizados.map((materialUso) => {
-    const materialDb = inventarioMap.get(materialUso.material_id);
-    return {
-      orden_id: orden.id,
-      material_id: materialUso.material_id,
-      nombre_material: materialDb?.nombre || 'Material inventario',
-      cantidad: materialUso.cantidad,
-      precio_unitario: materialDb?.precio_ref ?? null,
-    };
+  const respuesta = await fetchJson('/partes', {
+    method: 'POST',
+    body: {
+      orden_id: ordenIdEntrada || '',
+      cliente_id: limpiarTexto(payload.cliente_id) || '',
+      equipo_id: equipoId,
+      cliente_nombre: clienteNombreEntrada || '',
+      equipo_nombre: equipoNombreEntrada || '',
+      tecnico_id: tecnicoId,
+      descripcion_problema: descripcionProblema,
+      nombre_firmante: nombreFirmante,
+      prioridad,
+      materialesTexto: payload.materialesTexto || '',
+      materialesInventario: materialesInventarioNormalizados,
+      tiempo_empleado: tiempoEmpleadoMinutos,
+      tareas_realizadas_libre: String(payload?.tareas_realizadas_libre || '').trim(),
+      mecanicos_intervinieron: payload?.mecanicos_intervinieron,
+      desplazamiento: payload?.desplazamiento || null,
+      intervension: payload?.intervension || null,
+      seguimientoTiempo: payload?.seguimientoTiempo || null,
+      firma_url: firmaUrl,
+      fotos_intervencion: fotosIntervencionUrls,
+    },
   });
 
-  const materiales = [...materialesInventario, ...materialesManual];
-
-  if (materiales.length > 0) {
-    const payloadMateriales = materiales.map((material) => ({
-      orden_id: orden.id,
-      ...material,
-    }));
-
-    const { error: errorMateriales } = await supabase.from('materiales_orden').insert(payloadMateriales);
-
-    if (errorMateriales) {
-      throw new Error(`El parte se creó, pero falló el guardado de materiales: ${errorMateriales.message}`);
-    }
-  }
-
-  return {
-    ...orden,
-    nombre_firmante: nombreFirmante,
-    fotos_intervencion_urls: fotosIntervencionUrls,
-  };
+  return respuesta;
 }

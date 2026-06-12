@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw, ShieldUser } from 'lucide-react';
-import { obtenerClienteSupabase, tieneConfiguracionSupabase } from '../services/supabaseClient';
+import { fetchJson } from '../services/apiClient';
+import { tieneConfiguracionSupabase } from '../services/supabaseClient';
 import {
   actualizarUsuarioSat,
   crearUsuarioSat,
@@ -42,29 +43,14 @@ export function AdminView() {
       setErrorUsuarios('');
 
       try {
-        const supabase = obtenerClienteSupabase();
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
+        const me = await fetchJson('/auth/me');
+        const user = me?.session?.user || null;
+        const perfil = me?.perfil || null;
 
-        if (authError || !user) {
+        if (!user) {
           setPuedeAdministrar(false);
           setUsuarios([]);
           setErrorUsuarios('Debes iniciar sesión con un usuario admin para acceder a esta sección.');
-          return;
-        }
-
-        const { data: perfil, error: perfilError } = await supabase
-          .from('usuarios_sat')
-          .select('rol')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (perfilError) {
-          setPuedeAdministrar(false);
-          setUsuarios([]);
-          setErrorUsuarios(`No se pudo validar tu rol SAT: ${perfilError.message}`);
           return;
         }
 

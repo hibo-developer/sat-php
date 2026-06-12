@@ -3,16 +3,18 @@ import ReactDOM from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import App from './App';
 import './index.css';
-import { generarInformeParteDemoLocal } from './services/parteTrabajoInformeService';
 
 if (import.meta.env.DEV && typeof window !== 'undefined') {
-  const satPdfPreviewApi = {
-    generarInformeDemo: generarInformeParteDemoLocal,
-  };
-
-  window.__satPdfPreview = satPdfPreviewApi;
-  window._satPdfPreview = satPdfPreviewApi;
-  window._satPdfPrewiew = satPdfPreviewApi;
+  import('./services/parteTrabajoInformeService')
+    .then((m) => {
+      const satPdfPreviewApi = {
+        generarInformeDemo: m.generarInformeParteDemoLocal,
+      };
+      window.__satPdfPreview = satPdfPreviewApi;
+      window._satPdfPreview = satPdfPreviewApi;
+      window._satPdfPrewiew = satPdfPreviewApi;
+    })
+    .catch(() => {});
 }
 
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {

@@ -1,5 +1,5 @@
-import { obtenerClienteSupabase } from './supabaseClient';
 import { asegurarPasswordSegura } from './passwordSecurity';
+import { fetchJson } from './apiClient';
 
 const ROLES_PERMITIDOS = new Set(['admin', 'oficina', 'tecnico']);
 
@@ -17,57 +17,11 @@ function validarRol(rol) {
   return rolLimpio;
 }
 
-async function construirMensajeErrorFuncion(error) {
-  const estado = error?.context?.status;
-  let detalle = error?.message || '';
-
-  // Supabase puede adjuntar la respuesta HTTP en error.context
-  const respuesta = error?.context;
-  if (respuesta && typeof respuesta.json === 'function') {
-    try {
-      const cuerpo = await respuesta.json();
-      if (cuerpo?.error && typeof cuerpo.error === 'string') {
-        detalle = cuerpo.error;
-      }
-    } catch {
-      // Ignorar errores de parseo y usar el mensaje base
-    }
-  }
-
-  if (estado === 401) {
-    return `Sesion no valida o expirada. ${detalle}`.trim();
-  }
-
-  if (estado === 403) {
-    return `Acceso denegado. Debes iniciar sesion con un usuario admin. ${detalle}`.trim();
-  }
-
-  if (detalle && detalle !== 'Edge Function returned a non-2xx status code') {
-    return detalle;
-  }
-
-  return 'No se pudo completar la operacion de usuarios.';
-}
-
 async function invocarAdminUsers(action, payload = {}) {
-  const supabase = obtenerClienteSupabase();
-  const { data, error } = await supabase.functions.invoke('admin-users', {
-    body: {
-      action,
-      payload,
-    },
+  return fetchJson('/admin-users', {
+    method: 'POST',
+    body: { action, payload },
   });
-
-  if (error) {
-    const mensaje = await construirMensajeErrorFuncion(error);
-    throw new Error(mensaje);
-  }
-
-  if (data?.error) {
-    throw new Error(data.error);
-  }
-
-  return data;
 }
 
 export async function listarUsuariosSat() {

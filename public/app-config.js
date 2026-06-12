@@ -1,4 +1,3 @@
 window.__APP_CONFIG__ = window.__APP_CONFIG__ || {
-  SUPABASE_URL: '',
-  SUPABASE_ANON_KEY: '',
+  API_BASE_URL: '/api',
 };

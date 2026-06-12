@@ -3,70 +3,28 @@ import {
   cerrarSesion,
   escucharCambiosSesion,
   iniciarSesionConPassword,
-  listarFactoresMfa,
-  obtenerNivelAseguramientoSesion,
   obtenerSesionActual,
-  verificarTotpMfa,
 } from '../services/authService';
 import { tieneConfiguracionSupabase } from '../services/supabaseClient';
 
-function resolverFactorPreferido(factores) {
-  const totp = Array.isArray(factores?.totp) ? factores.totp : [];
-  const all = Array.isArray(factores?.all) ? factores.all : [];
-  const preferido = totp.find((f) => String(f?.status || '').toLowerCase() === 'verified')
-    || all.find((f) => String(f?.status || '').toLowerCase() === 'verified')
-    || totp[0]
-    || all[0]
-    || null;
-  return preferido?.id || null;
-}
-
 export function useAuthSession() {
   const [sesion, setSesion] = useState(null);
-  const [sesionPendienteMfa, setSesionPendienteMfa] = useState(null);
-  const [factorMfaId, setFactorMfaId] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
 
   async function evaluarSesion(siguienteSesion) {
     if (!tieneConfiguracionSupabase()) {
       setSesion(null);
-      setSesionPendienteMfa(null);
-      setFactorMfaId(null);
       return { requiereMfa: false, sesion: null };
     }
 
     if (!siguienteSesion) {
       setSesion(null);
-      setSesionPendienteMfa(null);
-      setFactorMfaId(null);
       return { requiereMfa: false, sesion: null };
     }
 
-    try {
-      const aal = await obtenerNivelAseguramientoSesion();
-      const current = String(aal?.currentLevel || '').toLowerCase();
-      const next = String(aal?.nextLevel || '').toLowerCase();
-
-      if (current === 'aal1' && next === 'aal2') {
-        const factores = await listarFactoresMfa();
-        const factorId = resolverFactorPreferido(factores);
-        setSesion(null);
-        setSesionPendienteMfa(siguienteSesion);
-        setFactorMfaId(factorId);
-        return { requiereMfa: true, sesion: null, factorId };
-      }
-
-      setSesion(siguienteSesion);
-      setSesionPendienteMfa(null);
-      setFactorMfaId(null);
-      return { requiereMfa: false, sesion: siguienteSesion };
-    } catch {
-      setSesion(siguienteSesion);
-      setSesionPendienteMfa(null);
-      setFactorMfaId(null);
-      return { requiereMfa: false, sesion: siguienteSesion };
-    }
+    setSesion(siguienteSesion);
+    return { requiereMfa: false, sesion: siguienteSesion };
   }
 
   useEffect(() => {
@@ -116,45 +74,20 @@ export function useAuthSession() {
     return resultado;
   }
 
-  async function verificarMfa(codigo) {
-    setError('');
-    const code = String(codigo || '').trim();
-    if (!code) {
-      throw new Error('Debes introducir el codigo de 6 digitos.');
-    }
-    if (!factorMfaId) {
-      throw new Error('No se encontro un factor 2FA valido para este usuario.');
-    }
-    await verificarTotpMfa({ factorId: factorMfaId, code });
-    const sesionActual = await obtenerSesionActual();
-    await evaluarSesion(sesionActual);
-    return sesionActual;
-  }
-
-  async function cancelarMfa() {
-    setError('');
-    await cerrarSesion();
-    setSesion(null);
-    setSesionPendienteMfa(null);
-    setFactorMfaId(null);
-  }
-
   async function logout() {
     setError('');
     await cerrarSesion();
     setSesion(null);
-    setSesionPendienteMfa(null);
-    setFactorMfaId(null);
   }
 
   return {
     sesion,
-    mfaPendiente: Boolean(sesionPendienteMfa),
+    mfaPendiente: false,
     cargando,
     error,
     login,
-    verificarMfa,
-    cancelarMfa,
+    verificarMfa: async () => null,
+    cancelarMfa: async () => logout(),
     logout,
   };
 }
