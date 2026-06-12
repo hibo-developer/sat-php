@@ -1,8 +1,8 @@
 import { fetchJson, setCsrfToken } from './apiClient';
-import { tieneConfiguracionSupabase } from './supabaseClient';
+import { tieneBackendApi } from './backendClient';
 
 export async function obtenerSesionActual() {
-  if (!tieneConfiguracionSupabase()) {
+  if (!tieneBackendApi()) {
     return null;
   }
   const data = await fetchJson('/auth/me');

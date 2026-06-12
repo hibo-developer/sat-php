@@ -7,7 +7,7 @@ import {
   listarMovimientosInventario,
   regularizarStockMaterialInventario,
 } from '../services/inventarioMaterialesService';
-import { tieneConfiguracionSupabase } from '../services/supabaseClient';
+import { tieneBackendApi } from '../services/backendClient';
 
 const FORM_MATERIAL_INICIAL = {
   nombre: '',
@@ -43,7 +43,7 @@ export function InventarioView({ rolUsuario }) {
   const [paginaMateriales, setPaginaMateriales] = useState(1);
   const [itemsPaginaMateriales, setItemsPaginaMateriales] = useState(5);
 
-  const sinConfiguracion = useMemo(() => !tieneConfiguracionSupabase(), []);
+  const sinConfiguracion = useMemo(() => !tieneBackendApi(), []);
   const puedeEditarCatalogos = rolUsuario === 'admin' || rolUsuario === 'oficina';
   const modoSoloLectura = !puedeEditarCatalogos;
 
@@ -233,7 +233,7 @@ export function InventarioView({ rolUsuario }) {
   if (sinConfiguracion) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-        Configura Supabase en .env para habilitar el inventario de materiales.
+        Configura la API del backend para habilitar el inventario de materiales.
       </section>
     );
   }

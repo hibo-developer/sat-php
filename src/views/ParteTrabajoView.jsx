@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Capacitor } from '@capacitor/core';
 import {
   obtenerClientes,
   obtenerEquiposPorCliente,
@@ -15,7 +14,7 @@ import {
   intentarActualizarOrden,
 } from '../services/offlineSyncService';
 import { abrirGoogleMaps } from '../services/externalNavigationService';
-import { tieneConfiguracionSupabase } from '../services/supabaseClient';
+import { tieneBackendApi } from '../services/backendClient';
 
 function obtenerUbicacionActual() {
   return new Promise((resolve, reject) => {
@@ -245,20 +244,6 @@ function construirUrlRutaCliente({ lat, lng, direccion, modoNavegacion = false }
   return '';
 }
 
-function construirIntentRutaGoogleMaps({ lat, lng, direccion }) {
-  const latNum = Number(lat);
-  const lngNum = Number(lng);
-  const destino = (Number.isFinite(latNum) && Number.isFinite(lngNum))
-    ? `${latNum},${lngNum}`
-    : normalizarDireccion(direccion);
-
-  if (!destino) {
-    return '';
-  }
-
-  return `intent://maps.google.com/maps?daddr=${encodeURIComponent(destino)}&directionsmode=driving#Intent;scheme=https;package=com.google.android.apps.maps;end`;
-}
-
 async function comprimirImagenA1280(archivo, nombreFinal) {
   const file = archivo instanceof File ? archivo : null;
   if (!file) return null;
@@ -485,7 +470,7 @@ export function ParteTrabajoView() {
 
   useEffect(() => {
     async function cargarCatalogos() {
-      if (!tieneConfiguracionSupabase()) {
+      if (!tieneBackendApi()) {
         setCargando(false);
         return;
       }
@@ -515,7 +500,7 @@ export function ParteTrabajoView() {
 
   useEffect(() => {
     async function cargarEquipos() {
-      if (!formulario.cliente_id || !tieneConfiguracionSupabase()) {
+      if (!formulario.cliente_id || !tieneBackendApi()) {
         setEquipos([]);
         setFormulario((prev) => ({ ...prev, equipo_id: '' }));
         return;
@@ -537,7 +522,7 @@ export function ParteTrabajoView() {
 
   useEffect(() => {
     async function cargarOrdenesAbiertas() {
-      if (!formulario.cliente_id || !formulario.tecnico_id || !tieneConfiguracionSupabase()) {
+      if (!formulario.cliente_id || !formulario.tecnico_id || !tieneBackendApi()) {
         setOrdenesAbiertas([]);
         setFormulario((prev) => ({ ...prev, orden_id: '' }));
         return;
@@ -1318,7 +1303,6 @@ export function ParteTrabajoView() {
 
   async function abrirRutaCliente() {
     const cliente = clientes.find((c) => c.id === formulario.cliente_id);
-    const modoNavegacion = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
     const direccion = normalizarDireccion(cliente?.direccion);
     let lat = cliente?.lat ?? null;
     let lng = cliente?.lng ?? null;
@@ -1345,7 +1329,6 @@ export function ParteTrabajoView() {
       lat,
       lng,
       direccion,
-      modoNavegacion,
     });
     if (!url) {
       setError('El cliente no tiene coordenadas ni dirección para abrir la ruta.');
@@ -1353,24 +1336,11 @@ export function ParteTrabajoView() {
     }
     setError('');
     setMensaje('');
-    if (modoNavegacion) {
-      try {
-        const rsp = await abrirGoogleMaps({ lat, lng, address: direccion });
-        if (rsp?.opened) return;
-      } catch { /* noop */ }
-      try {
-        window.location.href = url;
-      } catch {
-        // noop
-      }
-      setTimeout(() => {
-        try {
-          window.open(url, '_blank', 'noopener,noreferrer');
-        } catch {
-          // noop
-        }
-      }, 400);
-      return;
+    try {
+      const rsp = await abrirGoogleMaps({ lat, lng, address: direccion });
+      if (rsp?.opened) return;
+    } catch {
+      // noop
     }
     window.open(url, '_blank', 'noopener,noreferrer');
   }
@@ -1630,10 +1600,10 @@ export function ParteTrabajoView() {
       || (!formulario.cliente_id && !(formulario.cliente_nombre || '').trim())
     );
 
-  if (!tieneConfiguracionSupabase()) {
+  if (!tieneBackendApi()) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-        Configura Supabase en `.env` para usar el formulario de parte de trabajo.
+        Configura la API del backend para usar el formulario de parte de trabajo.
       </section>
     );
   }

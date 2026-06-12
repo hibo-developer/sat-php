@@ -8,7 +8,7 @@ import {
   finalizarOrdenTrabajo,
   obtenerOrdenesTrabajo,
 } from '../services/workOrderApiService';
-import { tieneConfiguracionSupabase } from '../services/supabaseClient';
+import { tieneBackendApi } from '../services/backendClient';
 import {
   estaOnline,
   intentarActualizarOrden,
@@ -67,7 +67,7 @@ function calcularHorasManoObraPorContador(tiempoEmpleadoMinutos) {
   return minutos < 60 ? 1 : Number((minutos / 60).toFixed(2));
 }
 
-function adaptarOrdenSupabase(orden) {
+function adaptarOrdenBackend(orden) {
   const materiales = Array.isArray(orden.materiales_orden) ? orden.materiales_orden : [];
   const costeMateriales = materiales.reduce((total, material) => {
     const cantidad = Number(material.cantidad || 0);
@@ -154,25 +154,25 @@ export function useOrdenes() {
     setError('');
 
     try {
-      if (tieneConfiguracionSupabase()) {
+      if (tieneBackendApi()) {
         // 1) Pinta inmediatamente desde la caché local si existe.
         if (!estaOnline()) {
           const cache = await obtenerOrdenesCacheadas();
-          setOrdenes(cache.map(adaptarOrdenSupabase));
+          setOrdenes(cache.map(adaptarOrdenBackend));
           setError('Sin conexión: mostrando datos guardados localmente.');
           return;
         }
 
         try {
           const datos = await obtenerOrdenesTrabajo();
-          setOrdenes(datos.map(adaptarOrdenSupabase));
+          setOrdenes(datos.map(adaptarOrdenBackend));
           // Refresca la caché para futuras sesiones offline.
           reemplazarCacheOrdenes(datos).catch(() => { /* noop */ });
         } catch (errRed) {
           // Si la red falla a pesar de navigator.onLine, fallback a caché.
           const cache = await obtenerOrdenesCacheadas();
           if (cache.length) {
-            setOrdenes(cache.map(adaptarOrdenSupabase));
+            setOrdenes(cache.map(adaptarOrdenBackend));
             setError('Conexión inestable: mostrando datos guardados localmente.');
           } else {
             throw errRed;

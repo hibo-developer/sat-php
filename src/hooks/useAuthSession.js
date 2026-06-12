@@ -5,7 +5,7 @@ import {
   iniciarSesionConPassword,
   obtenerSesionActual,
 } from '../services/authService';
-import { tieneConfiguracionSupabase } from '../services/supabaseClient';
+import { tieneBackendApi } from '../services/backendClient';
 
 export function useAuthSession() {
   const [sesion, setSesion] = useState(null);
@@ -13,7 +13,7 @@ export function useAuthSession() {
   const [error, setError] = useState('');
 
   async function evaluarSesion(siguienteSesion) {
-    if (!tieneConfiguracionSupabase()) {
+    if (!tieneBackendApi()) {
       setSesion(null);
       return { requiereMfa: false, sesion: null };
     }
@@ -31,7 +31,7 @@ export function useAuthSession() {
     let montado = true;
 
     async function inicializarSesion() {
-      if (!tieneConfiguracionSupabase()) {
+      if (!tieneBackendApi()) {
         setCargando(false);
         return;
       }

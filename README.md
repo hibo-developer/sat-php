@@ -1,6 +1,6 @@
 # SAT COTEPA para DonDominio
 
-Versión adaptada del proyecto SAT para funcionar en **hosting compartido con PHP + MySQL**, manteniendo el frontend React/Vite como salida estática y sustituyendo la capa anterior basada en Supabase.
+Aplicación SAT adaptada para **hosting compartido con PHP + MySQL**, con frontend React/Vite compilado como sitio estático y backend propio en PHP.
 
 ## Arquitectura actual
 
@@ -30,7 +30,7 @@ public_html/    Carpeta reservada para la salida final del hosting
 sql/            SQL importable en DonDominio
 src/            Frontend React/Vite
 scripts/        Automatizaciones PowerShell
-supabase/       Referencia histórica de la versión original
+docs/           Guías operativas
 ```
 
 ## Desarrollo del frontend
@@ -104,7 +104,7 @@ La guía paso a paso está en `DONDOMINIO.md`.
 
 ## Migracion de datos
 
-Si quieres mover los datos reales desde Supabase:
+Si quieres mover los datos reales desde la instalación anterior:
 
 - `npm run migrate:supabase:export`
 - `npm run migrate:supabase:storage`
@@ -114,6 +114,5 @@ La guia completa está en `docs/migracion-supabase-dondominio.md`.
 
 ## Notas del repositorio
 
-- La carpeta `supabase/` se conserva como referencia histórica de la app original.
 - `api/storage-data/` almacena ficheros subidos en producción y queda fuera de Git.
 - La rama/repositorio recomendado para esta migración es `sat-php`, dejando el repo original `sat` sin conflictos hasta el despliegue.

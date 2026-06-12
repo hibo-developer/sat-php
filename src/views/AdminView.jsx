@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw, ShieldUser } from 'lucide-react';
 import { fetchJson } from '../services/apiClient';
-import { tieneConfiguracionSupabase } from '../services/supabaseClient';
+import { tieneBackendApi } from '../services/backendClient';
 import {
   actualizarUsuarioSat,
   crearUsuarioSat,
@@ -73,7 +73,7 @@ export function AdminView() {
       }
     }
 
-    if (tieneConfiguracionSupabase()) {
+    if (tieneBackendApi()) {
       inicializarGestionUsuarios();
     }
   }, []);
@@ -178,10 +178,10 @@ export function AdminView() {
     }
   }, [paginaUsuarios, totalPaginasUsuarios]);
 
-  if (!tieneConfiguracionSupabase()) {
+  if (!tieneBackendApi()) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-        Configura Supabase en `.env` para usar las herramientas internas de administración.
+        Configura la API del backend para usar las herramientas internas de administración.
       </section>
     );
   }

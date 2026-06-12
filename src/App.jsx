@@ -7,7 +7,7 @@ import { useAuthSession } from './hooks/useAuthSession';
 import { precargarCatalogosOffline } from './services/catalogosService';
 import { estaOnline } from './services/offlineSyncService';
 import { fetchJson } from './services/apiClient';
-import { tieneConfiguracionSupabase } from './services/supabaseClient';
+import { tieneBackendApi } from './services/backendClient';
 import logoCotepa from './assets/cotepa.jpg';
 import { AdminView } from './views/AdminView';
 import { AccesoView } from './views/AccesoView';
@@ -106,7 +106,7 @@ export default function App() {
     cancelarMfa,
     logout,
   } = useAuthSession();
-  const requiereLogin = tieneConfiguracionSupabase();
+  const requiereLogin = tieneBackendApi();
   const accesoBloqueado = requiereLogin && !sesion;
   const esAdmin = rolUsuario === 'admin';
   const esTecnico = rolUsuario === 'tecnico';
@@ -253,7 +253,7 @@ export default function App() {
             className="h-16 w-16 rounded-xl border border-marca-100 object-cover lg:h-20 lg:w-20"
           />
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-bold uppercase tracking-widest text-marca-700">SAT Móvil COTEPA</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-marca-700">SAT COTEPA</p>
             <p className="truncate text-base font-extrabold text-marca-900 lg:text-xl">Hornos y equipos para panificación</p>
           </div>
         </div>

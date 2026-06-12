@@ -11,7 +11,7 @@ import {
   obtenerEquiposPorCliente,
   obtenerTecnicosActivos,
 } from '../services/catalogosService';
-import { tieneConfiguracionSupabase, obtenerUrlFirmadaStorage } from '../services/supabaseClient';
+import { tieneBackendApi, obtenerUrlFirmadaStorage } from '../services/backendClient';
 
 const estilosEstado = {
   Pendiente: {
@@ -296,12 +296,12 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar, puedeCrearO
   const busquedaEquipoDebounce = useDebounce(busquedaEquipo, 250);
   const busquedaTecnicoDebounce = useDebounce(busquedaTecnico, 250);
   const cargandoCatalogos = cargandoClientes || cargandoEquipos || cargandoTecnicos;
-  const formularioDeshabilitado = !puedeCrearOrdenes || !tieneConfiguracionSupabase() || cargandoCatalogos;
+  const formularioDeshabilitado = !puedeCrearOrdenes || !tieneBackendApi() || cargandoCatalogos;
 
   useEffect(() => {
     async function cargarClientes() {
-      if (!tieneConfiguracionSupabase()) {
-        setMensaje('Configura Supabase para habilitar el alta de órdenes con catálogos reales.');
+      if (!tieneBackendApi()) {
+        setMensaje('Configura la API del backend para habilitar el alta de órdenes con catálogos reales.');
         return;
       }
 
@@ -328,7 +328,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar, puedeCrearO
 
   useEffect(() => {
     async function cargarTecnicos() {
-      if (!tieneConfiguracionSupabase()) {
+      if (!tieneBackendApi()) {
         return;
       }
 
@@ -355,7 +355,7 @@ function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar, puedeCrearO
 
   useEffect(() => {
     async function cargarEquipos() {
-      if (!formulario.cliente_id || !tieneConfiguracionSupabase()) {
+      if (!formulario.cliente_id || !tieneBackendApi()) {
         setEquipos([]);
         setHayMasEquipos(false);
         setBusquedaEquipo('');
@@ -1681,7 +1681,7 @@ export function ListaOrdenesView({ rolUsuario }) {
 
   useEffect(() => {
     async function cargarTecnicosEdicion() {
-      if (!tieneConfiguracionSupabase()) {
+      if (!tieneBackendApi()) {
         setTecnicosActivos([]);
         return;
       }

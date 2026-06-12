@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import logoCotepaUrl from '../assets/cotepa.jpg';
-import { obtenerUrlFirmadaStorage } from './supabaseClient';
+import { obtenerUrlFirmadaStorage } from './backendClient';
 import { fetchJson } from './apiClient';
 
 // =====================================================================
@@ -783,7 +783,7 @@ function dibujarBloqueLegal(doc, estado) {
   setText(doc, COLOR.textoSuave);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  const aviso = `${EMPRESA.nombre} (${EMPRESA.cif}) · ${EMPRESA.direccion}. Documento generado automáticamente desde la plataforma SAT Móvil COTEPA. La conformidad del cliente se acredita mediante firma digital. Las imágenes incluidas constituyen evidencias de la intervención. Los datos personales se tratan según la normativa vigente; para ejercer derechos, escriba a ${EMPRESA.email}.`;
+  const aviso = `${EMPRESA.nombre} (${EMPRESA.cif}) · ${EMPRESA.direccion}. Documento generado automáticamente desde la plataforma SAT COTEPA. La conformidad del cliente se acredita mediante firma digital. Las imágenes incluidas constituyen evidencias de la intervención. Los datos personales se tratan según la normativa vigente; para ejercer derechos, escriba a ${EMPRESA.email}.`;
   doc.text(doc.splitTextToSize(aviso, w - 6), x + 3, estado.y + 9);
 
   estado.y += 22;

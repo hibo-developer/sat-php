@@ -4,14 +4,8 @@ const runtimeConfig =
   typeof window !== 'undefined' && window.__APP_CONFIG__ ? window.__APP_CONFIG__ : null;
 const apiBaseUrl = runtimeConfig?.API_BASE_URL || import.meta.env.VITE_API_BASE_URL || '/api';
 
-export const supabase = null;
-
-export function tieneConfiguracionSupabase() {
+export function tieneBackendApi() {
   return Boolean(apiBaseUrl);
-}
-
-export function obtenerClienteSupabase() {
-  throw new Error('Supabase no está disponible en el hosting PHP/MySQL.');
 }
 
 export function parsearReferenciaStorage(valor) {
@@ -44,7 +38,7 @@ export function parsearReferenciaStorage(valor) {
   }
 }
 
-export async function obtenerUrlFirmadaStorage(referencia, opciones = {}) {
+export async function obtenerUrlPrivadaStorage(referencia, opciones = {}) {
   const { expiresIn = 600 } = opciones;
   const ref = parsearReferenciaStorage(referencia);
   if (!ref) {
@@ -58,3 +52,5 @@ export async function obtenerUrlFirmadaStorage(referencia, opciones = {}) {
     return String(referencia || '').trim();
   }
 }
+
+export const obtenerUrlFirmadaStorage = obtenerUrlPrivadaStorage;

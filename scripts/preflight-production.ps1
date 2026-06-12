@@ -59,34 +59,40 @@ function Test-HttpsUrl([string]$url) {
   return $uri.Scheme -eq "https"
 }
 
+function Test-RelativeOrHttpsUrl([string]$url) {
+  if ([string]::IsNullOrWhiteSpace($url)) {
+    return $true
+  }
+
+  if ($url.StartsWith("/")) {
+    return $true
+  }
+
+  return Test-HttpsUrl $url
+}
+
 $envPath = Join-Path $repoRoot $EnvFile
 $envData = Parse-EnvFile $envPath
 $resultados = @()
 
-Write-Host "== Preflight de Produccion SAT =="
+Write-Host "== Preflight de Produccion SAT PHP/MySQL =="
 Write-Host "Repositorio: $repoRoot"
 Write-Host "Env file: $envPath"
 
-$requiredEnv = @("VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY")
-foreach ($clave in $requiredEnv) {
-  $valor = if ($envData.ContainsKey($clave)) { $envData[$clave] } else { "" }
-  $ok = -not [string]::IsNullOrWhiteSpace($valor)
-  Add-Result -lista ([ref]$resultados) -nombre "ENV:$clave" -ok $ok -detalle ($(if ($ok) { "Definida" } else { "Falta definir" }))
-}
+$apiBaseUrl = if ($envData.ContainsKey("VITE_API_BASE_URL")) { $envData["VITE_API_BASE_URL"] } else { "" }
+Add-Result -lista ([ref]$resultados) -nombre "ENV:VITE_API_BASE_URL" -ok (Test-RelativeOrHttpsUrl $apiBaseUrl) -detalle "Debe ser relativa (/api) o https valida"
 
-$sbUrl = if ($envData.ContainsKey("VITE_SUPABASE_URL")) { $envData["VITE_SUPABASE_URL"] } else { "" }
-Add-Result -lista ([ref]$resultados) -nombre "SUPABASE_URL_HTTPS" -ok (Test-HttpsUrl $sbUrl) -detalle "La URL debe ser https valida"
-
-$anonKey = if ($envData.ContainsKey("VITE_SUPABASE_ANON_KEY")) { $envData["VITE_SUPABASE_ANON_KEY"] } else { "" }
-Add-Result -lista ([ref]$resultados) -nombre "SUPABASE_ANON_KEY_LONGITUD" -ok ($anonKey.Length -ge 20) -detalle "La anon key parece demasiado corta"
+$baseUrl = if ($envData.ContainsKey("SAT_BASE_URL")) { $envData["SAT_BASE_URL"] } else { "" }
+Add-Result -lista ([ref]$resultados) -nombre "ENV:SAT_BASE_URL" -ok (Test-RelativeOrHttpsUrl $baseUrl) -detalle "Si se define, debe ser https valida"
 
 $requiredFiles = @(
-  "supabase/04_security_roles_rls.sql",
-  "supabase/06_storage_firmas_clientes.sql",
-  "supabase/07_storage_informes_partes.sql",
-  "supabase/10_security_hardening.sql",
-  "supabase/11_block_anonymous_sessions.sql",
-  "docs/checklist-validacion-roles.md"
+  "api/index.php",
+  "config/database.php",
+  "deploy/dondominio/index.php",
+  "deploy/dondominio/api/index.php",
+  "public/app-config.js",
+  "sql/dondominio_mysql.sql",
+  "DONDOMINIO.md"
 )
 
 foreach ($archivo in $requiredFiles) {

@@ -5,17 +5,9 @@ dist-hosting
 build
 .cache
 release
-release-desktop
-release-desktop-fallback
-release-desktop-out-*
-release-desktop-installer-*
-release-desktop-verify
-release-desktop-verify2
-release-desktop-verify3
 .env
 .env.*
 !.env.example
-supabase/.temp
 api/storage-data/*
 !api/storage-data/.gitignore
 public_html/*
@@ -27,5 +19,3 @@ migration-data/
 .vscode/settings.json
 sat-release.keystore
 test-email.mjs
-SAT-Movil-COTEPA-*.apk
-SAT-Movil-COTEPA-*.exe

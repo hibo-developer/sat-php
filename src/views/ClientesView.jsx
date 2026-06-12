@@ -11,7 +11,7 @@ import {
   eliminarEquipo,
   listarEquipos,
 } from '../services/equiposService';
-import { tieneConfiguracionSupabase } from '../services/supabaseClient';
+import { tieneBackendApi } from '../services/backendClient';
 
 const FORM_CLIENTE_INICIAL = {
   nombre: '',
@@ -53,7 +53,7 @@ export function ClientesView({ rolUsuario }) {
   const [itemsPaginaClientes, setItemsPaginaClientes] = useState(5);
   const [itemsPaginaEquipos, setItemsPaginaEquipos] = useState(5);
 
-  const sinConfiguracion = useMemo(() => !tieneConfiguracionSupabase(), []);
+  const sinConfiguracion = useMemo(() => !tieneBackendApi(), []);
   const puedeEditarCatalogos = rolUsuario === 'admin' || rolUsuario === 'oficina';
   const modoSoloLectura = !puedeEditarCatalogos;
 
@@ -250,7 +250,7 @@ export function ClientesView({ rolUsuario }) {
   if (sinConfiguracion) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-        Configura Supabase en .env para habilitar el CRUD de clientes y equipos.
+        Configura la API del backend para habilitar el CRUD de clientes y equipos.
       </section>
     );
   }
