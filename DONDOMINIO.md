@@ -26,13 +26,14 @@ Eso crea una carpeta en `release/AAAA-MM-DD_HHMM_hosting/` con la estructura exa
 
 1. Crear una base de datos MySQL y un usuario con permisos.
 2. Importar `sql/dondominio_mysql.sql`.
-3. Subir el contenido de `release/*_hosting/` al hosting respetando esta estructura:
+3. Si migras datos reales desde Supabase, importar despues `sql/dondominio_data_seed.sql`.
+4. Subir el contenido de `release/*_hosting/` al hosting respetando esta estructura:
    - `public_html/`
    - `public_html/api/`
    - `api/`
    - `config/`
    - `sql/`
-4. Configurar las variables de entorno del hosting:
+5. Configurar las variables de entorno del hosting:
    - `SAT_DB_HOST`
    - `SAT_DB_PORT`
    - `SAT_DB_NAME`
@@ -41,7 +42,7 @@ Eso crea una carpeta en `release/AAAA-MM-DD_HHMM_hosting/` con la estructura exa
    - `SAT_BASE_URL` por ejemplo `https://tudominio.com`
    - `SAT_ALLOWED_ORIGINS` opcional, por ejemplo `https://tudominio.com`
    - `SAT_SETUP_TOKEN` temporal para crear el admin inicial
-5. Crear el usuario administrador inicial:
+6. Crear el usuario administrador inicial:
    - URL: `https://tudominio.com/api/setup/create_admin.php`
    - Header: `X-Setup-Token: <SAT_SETUP_TOKEN>`
    - Body JSON:
@@ -54,11 +55,15 @@ Eso crea una carpeta en `release/AAAA-MM-DD_HHMM_hosting/` con la estructura exa
 }
 ```
 
-6. Eliminar o cambiar `SAT_SETUP_TOKEN` cuando el admin ya exista.
+7. Eliminar o cambiar `SAT_SETUP_TOKEN` cuando el admin ya exista.
 
 ## Si tu hosting no permite variables de entorno
 
 Puedes crear `config/database.local.php` copiando `config/database.local.php.example` y poniendo ahí las credenciales.
+
+## Migracion desde Supabase
+
+La automatizacion de exportacion y generacion del SQL de datos esta en `docs/migracion-supabase-dondominio.md`.
 
 ## Qué hace esta adaptación
 

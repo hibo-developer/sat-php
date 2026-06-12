@@ -21,6 +21,7 @@ api/storage-data/*
 public_html/*
 !public_html/.gitkeep
 config/database.local.php
+migration-data/
 
 # Archivos locales de desarrollo
 .vscode/settings.json

@@ -121,14 +121,27 @@ CREATE TABLE ordenes_trabajo (
   foto_url VARCHAR(255) DEFAULT NULL,
   firma_url VARCHAR(255) DEFAULT NULL,
   informe_pdf_url VARCHAR(255) DEFAULT NULL,
+  nombre_conformidad_cliente VARCHAR(190) DEFAULT NULL,
+  referencia_informe VARCHAR(255) DEFAULT NULL,
+  sin_intervencion TINYINT(1) NOT NULL DEFAULT 0,
+  origen_parte_imprevista TINYINT(1) NOT NULL DEFAULT 0,
   fecha_inicio DATETIME DEFAULT NULL,
   fecha_fin DATETIME DEFAULT NULL,
   desplazamiento_inicio DATETIME DEFAULT NULL,
   desplazamiento_fin DATETIME DEFAULT NULL,
+  desplazamiento_distancia_metros INT DEFAULT NULL,
+  desplazamiento_distancia_factura_km DECIMAL(10, 2) DEFAULT NULL,
   intervension_inicio DATETIME DEFAULT NULL,
   intervension_fin DATETIME DEFAULT NULL,
+  intervension_distancia_metros INT DEFAULT NULL,
+  intervension_geo_inicio TEXT DEFAULT NULL,
+  intervension_geo_fin TEXT DEFAULT NULL,
   localizacion_inicio VARCHAR(255) DEFAULT NULL,
   localizacion_fin VARCHAR(255) DEFAULT NULL,
+  desplazamiento_lugar_inicio TEXT DEFAULT NULL,
+  desplazamiento_lugar_fin TEXT DEFAULT NULL,
+  intervension_lugar_inicio TEXT DEFAULT NULL,
+  intervension_lugar_fin TEXT DEFAULT NULL,
   coste_materiales_editable DECIMAL(10, 2) DEFAULT NULL,
   tarifa_mano_obra_hora DECIMAL(10, 2) DEFAULT NULL,
   horas_mano_obra DECIMAL(10, 2) DEFAULT NULL,
@@ -186,13 +199,18 @@ CREATE TABLE inventario_movimientos (
   stock_anterior INT NOT NULL,
   stock_nuevo INT NOT NULL,
   motivo VARCHAR(255) DEFAULT NULL,
+  creado_por CHAR(36) DEFAULT NULL,
   creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_inventario_movimientos_material (material_id),
   KEY idx_inventario_movimientos_fecha (creado_en),
+  KEY idx_inventario_movimientos_creado_por (creado_por),
   CONSTRAINT fk_inventario_movimientos_material
     FOREIGN KEY (material_id) REFERENCES inventario_materiales (id)
-    ON DELETE CASCADE
+    ON DELETE CASCADE,
+  CONSTRAINT fk_inventario_movimientos_creado_por
+    FOREIGN KEY (creado_por) REFERENCES usuarios (id)
+    ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE ordenes_trabajo_gps (

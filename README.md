@@ -102,6 +102,16 @@ release/<fecha>_hosting/
 
 La guía paso a paso está en `DONDOMINIO.md`.
 
+## Migracion de datos
+
+Si quieres mover los datos reales desde Supabase:
+
+- `npm run migrate:supabase:export`
+- `npm run migrate:supabase:storage`
+- `npm run migrate:mysql:seed`
+
+La guia completa está en `docs/migracion-supabase-dondominio.md`.
+
 ## Notas del repositorio
 
 - La carpeta `supabase/` se conserva como referencia histórica de la app original.
