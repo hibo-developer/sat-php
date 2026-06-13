@@ -27,13 +27,14 @@ Eso crea una carpeta en `release/AAAA-MM-DD_HHMM_hosting/` con la estructura exa
 1. Crear una base de datos MySQL y un usuario con permisos.
 2. Importar `sql/dondominio_mysql.sql`.
 3. Si migras datos reales desde Supabase, importar despues `sql/dondominio_data_seed.sql`.
-4. Subir el contenido de `release/*_hosting/` al hosting respetando esta estructura:
+4. Si actualizas una instalación ya existente, importar tambien `sql/security_rate_limit.sql`.
+5. Subir el contenido de `release/*_hosting/` al hosting respetando esta estructura:
    - `public_html/`
    - `public_html/api/`
    - `api/`
    - `config/`
    - `sql/`
-5. Configurar las variables de entorno del hosting:
+6. Configurar las variables de entorno del hosting:
    - `SAT_DB_HOST`
    - `SAT_DB_PORT`
    - `SAT_DB_NAME`
@@ -41,8 +42,13 @@ Eso crea una carpeta en `release/AAAA-MM-DD_HHMM_hosting/` con la estructura exa
    - `SAT_DB_PASSWORD`
    - `SAT_BASE_URL` por ejemplo `https://tudominio.com`
    - `SAT_ALLOWED_ORIGINS` opcional, por ejemplo `https://tudominio.com`
+   - `SAT_LOGIN_LIMIT_IP_ATTEMPTS` opcional, por defecto `10`
+   - `SAT_LOGIN_LIMIT_EMAIL_ATTEMPTS` opcional, por defecto `5`
+   - `SAT_LOGIN_LIMIT_WINDOW_SECONDS` opcional, por defecto `900`
+   - `SAT_LOGIN_LIMIT_BLOCK_SECONDS` opcional, por defecto `900`
+   - `SAT_SETUP_ENABLED` opcional, por defecto `false`
    - `SAT_SETUP_TOKEN` temporal para crear el admin inicial
-6. Crear el usuario administrador inicial:
+7. Crear el usuario administrador inicial:
    - URL: `https://tudominio.com/api/setup/create_admin.php`
    - Header: `X-Setup-Token: <SAT_SETUP_TOKEN>`
    - Body JSON:
@@ -55,7 +61,7 @@ Eso crea una carpeta en `release/AAAA-MM-DD_HHMM_hosting/` con la estructura exa
 }
 ```
 
-7. Eliminar o cambiar `SAT_SETUP_TOKEN` cuando el admin ya exista.
+8. Desactivar `SAT_SETUP_ENABLED` y eliminar o cambiar `SAT_SETUP_TOKEN` cuando el admin ya exista.
 
 ## Si tu hosting no permite variables de entorno
 
@@ -76,3 +82,4 @@ La automatizacion de exportacion y generacion del SQL de datos esta en `docs/mig
 
 - Las referencias `sb://bucket/path` siguen existiendo en la app, pero ahora las resuelve la API PHP mediante `GET /api/storage/{bucket}/{path}`.
 - `api/storage-data/` queda fuera del control de versiones salvo su `.gitignore`.
+- La guía operativa de seguridad y revisión de logs está en `docs/seguridad-operativa.md`.

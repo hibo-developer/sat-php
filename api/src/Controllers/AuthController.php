@@ -6,6 +6,7 @@ namespace Sat\Api\Controllers;
 use Sat\Api\Auth;
 use Sat\Api\Db;
 use Sat\Api\Http;
+use Sat\Api\LoginRateLimiter;
 use Sat\Api\Request;
 
 final class AuthController
@@ -21,15 +22,25 @@ final class AuthController
         }
 
         $pdo = Db::pdo();
+        $rateLimiter = new LoginRateLimiter($pdo);
+        $clientIp = $this->clientIp();
+        $retryAfter = $rateLimiter->retryAfterSeconds($email, $clientIp);
+        if ($retryAfter > 0) {
+            header('Retry-After: ' . (string)$retryAfter);
+            Http::json(['error' => 'Demasiados intentos de acceso. Intenta de nuevo en unos minutos.'], 429);
+        }
+
         $st = $pdo->prepare('SELECT id, email, password_hash, activo FROM usuarios WHERE email = :email LIMIT 1');
         $st->execute([':email' => $email]);
         $user = $st->fetch();
 
         if (!$user || (int)$user['activo'] !== 1 || !password_verify($password, (string)$user['password_hash'])) {
+            $rateLimiter->registerFailure($email, $clientIp);
             usleep(250000);
             Http::json(['error' => 'Credenciales inválidas.'], 401);
         }
 
+        $rateLimiter->clear($email, $clientIp);
         Auth::login($user);
         $me = $this->buildMePayload((string)$user['id'], (string)$user['email']);
         Http::json($me);
@@ -99,6 +110,26 @@ final class AuthController
             ] : null,
             'csrfToken' => Auth::ensureCsrfToken(),
         ];
+    }
+
+    private function clientIp(): string
+    {
+        $remoteAddr = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+        if (filter_var($remoteAddr, FILTER_VALIDATE_IP)) {
+            return $remoteAddr;
+        }
+
+        $forwardedFor = trim((string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+        if ($forwardedFor !== '') {
+            $parts = array_map('trim', explode(',', $forwardedFor));
+            foreach ($parts as $part) {
+                if (filter_var($part, FILTER_VALIDATE_IP)) {
+                    return $part;
+                }
+            }
+        }
+
+        return '';
     }
 }
 

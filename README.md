@@ -70,6 +70,11 @@ Backend PHP:
 - `SAT_DB_PASSWORD`
 - `SAT_BASE_URL`
 - `SAT_ALLOWED_ORIGINS` opcional
+- `SAT_LOGIN_LIMIT_IP_ATTEMPTS` opcional
+- `SAT_LOGIN_LIMIT_EMAIL_ATTEMPTS` opcional
+- `SAT_LOGIN_LIMIT_WINDOW_SECONDS` opcional
+- `SAT_LOGIN_LIMIT_BLOCK_SECONDS` opcional
+- `SAT_SETUP_ENABLED` opcional
 - `SAT_SETUP_TOKEN` temporal para crear el admin inicial
 
 ## Empaquetado para DonDominio
@@ -96,11 +101,12 @@ release/<fecha>_hosting/
 
 1. Crear la base de datos MySQL.
 2. Importar `sql/dondominio_mysql.sql`.
-3. Subir el contenido del paquete respetando la estructura anterior.
-4. Configurar las variables de entorno del backend.
-5. Crear el admin inicial con `api/setup/create_admin.php`.
+3. Si la instalación ya existe, importar también `sql/security_rate_limit.sql`.
+4. Subir el contenido del paquete respetando la estructura anterior.
+5. Configurar las variables de entorno del backend.
+6. Crear el admin inicial con `api/setup/create_admin.php` solo con `SAT_SETUP_ENABLED=true`.
 
-La guía paso a paso está en `DONDOMINIO.md`.
+La guía paso a paso está en `DONDOMINIO.md` y la operativa de seguridad/logs en `docs/seguridad-operativa.md`.
 
 ## Migracion de datos
 

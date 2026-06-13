@@ -13,7 +13,7 @@ final class InventarioController
 {
     public function listarMateriales(Request $request, array $params): void
     {
-        Auth::requireLogin();
+        Auth::requireRole(['admin', 'oficina', 'tecnico']);
         $soloActivos = isset($request->query['soloActivos']) && (string)$request->query['soloActivos'] !== '0';
         $pdo = Db::pdo();
         $sql = 'SELECT id, nombre, descripcion, unidad, stock_actual, precio_ref, activo, creado_en FROM inventario_materiales';

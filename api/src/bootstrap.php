@@ -37,4 +37,5 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
+\Sat\Api\Http::applySecurityHeaders();
 \Sat\Api\Http::applyCors();

@@ -13,9 +13,12 @@ final class ClientesController
 {
     public function index(Request $request, array $params): void
     {
-        Auth::requireLogin();
+        $u = Auth::requireRole(['admin', 'oficina', 'tecnico']);
         $pdo = Db::pdo();
-        $st = $pdo->query('SELECT id, nombre, direccion, telefono, email, lat, lng, created_at FROM clientes ORDER BY created_at DESC');
+        $sql = ($u['rol'] ?? '') === 'tecnico'
+            ? 'SELECT id, nombre, direccion, lat, lng FROM clientes ORDER BY created_at DESC'
+            : 'SELECT id, nombre, direccion, telefono, email, lat, lng, created_at FROM clientes ORDER BY created_at DESC';
+        $st = $pdo->query($sql);
         $items = $st->fetchAll() ?: [];
         Http::json($items);
     }

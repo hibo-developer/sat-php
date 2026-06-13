@@ -8,7 +8,13 @@ return [
     'username' => 'sat_user',
     'password' => 'CAMBIAR_ESTA_PASSWORD',
     'base_url' => 'https://tudominio.com',
+    'allowed_origins' => 'https://tudominio.com',
+    'login_limit_ip_attempts' => 10,
+    'login_limit_email_attempts' => 5,
+    'login_limit_window_seconds' => 900,
+    'login_limit_block_seconds' => 900,
     'timezone' => 'Europe/Madrid',
     'mail_from' => 'sat@tudominio.com',
+    'setup_enabled' => false,
     'setup_token' => 'CAMBIAR_ESTE_TOKEN',
 ];

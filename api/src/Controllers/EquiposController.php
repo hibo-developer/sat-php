@@ -13,7 +13,7 @@ final class EquiposController
 {
     public function index(Request $request, array $params): void
     {
-        Auth::requireLogin();
+        Auth::requireRole(['admin', 'oficina', 'tecnico']);
         $pdo = Db::pdo();
         $sql = 'SELECT e.id, e.cliente_id, e.nombre, e.marca, e.modelo, e.numero_serie, e.ultima_revision, c.nombre AS cliente_nombre
                 FROM equipos e

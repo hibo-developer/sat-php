@@ -13,7 +13,7 @@ final class TecnicosController
 {
     public function index(Request $request, array $params): void
     {
-        Auth::requireLogin();
+        Auth::requireRole(['admin', 'oficina', 'tecnico']);
         $pdo = Db::pdo();
         $st = $pdo->query('SELECT id, nombre, especialidad, activo FROM tecnicos ORDER BY nombre ASC');
         Http::json($st->fetchAll() ?: []);

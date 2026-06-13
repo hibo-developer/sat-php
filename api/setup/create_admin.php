@@ -8,8 +8,13 @@ use Sat\Api\Db;
 use Sat\Api\Http;
 use Sat\Api\Uuid;
 
+$setupEnabled = (bool)App::config('setup_enabled', false);
 $tokenEnv = (string)App::config('setup_token', '');
 $tokenReq = $_SERVER['HTTP_X_SETUP_TOKEN'] ?? '';
+if (!$setupEnabled) {
+    Http::json(['error' => 'Setup deshabilitado.'], 403);
+}
+
 if ($tokenEnv === '' || $tokenReq === '' || !hash_equals($tokenEnv, $tokenReq)) {
     Http::json(['error' => 'No autorizado.'], 403);
 }
