@@ -14,10 +14,14 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
-date_default_timezone_set('UTC');
-
 $cfg = require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'database.php';
 \Sat\Api\App::setConfig($cfg);
+
+$timezone = trim((string)($cfg['timezone'] ?? ''));
+if ($timezone === '') {
+    $timezone = 'UTC';
+}
+date_default_timezone_set($timezone);
 
 $cookieSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
 session_set_cookie_params([

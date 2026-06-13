@@ -135,6 +135,7 @@ function adaptarOrdenBackend(orden) {
     fechaInicioIso: orden.fecha_inicio || null,
     fechaFinIso: orden.fecha_fin || null,
     informePdfUrl: orden.informe_pdf_url || '',
+    referenciaInforme: orden.referencia_informe || '',
     estado: estadoBackendAUi(orden.estado),
     prioridad: orden.prioridad,
     fecha: new Date(orden.fecha_inicio).toLocaleDateString('es-ES'),

@@ -46,6 +46,7 @@ $router->delete('/ordenes/{id}', [Sat\Api\Controllers\OrdenesController::class, 
 $router->post('/ordenes/{id}/finalizar', [Sat\Api\Controllers\OrdenesController::class, 'finalizar']);
 $router->post('/ordenes/{id}/valoracion', [Sat\Api\Controllers\OrdenesController::class, 'valoracion']);
 $router->post('/ordenes/{id}/editar-parte', [Sat\Api\Controllers\OrdenesController::class, 'editarParte']);
+$router->post('/ordenes/{id}/informe-referencia', [Sat\Api\Controllers\OrdenesController::class, 'reservarReferenciaInforme']);
 $router->post('/ordenes/{id}/informe', [Sat\Api\Controllers\OrdenesController::class, 'guardarInforme']);
 
 $router->post('/gps', [Sat\Api\Controllers\GpsController::class, 'insert']);

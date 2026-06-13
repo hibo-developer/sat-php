@@ -8,6 +8,7 @@ return [
     'username' => 'sat_user',
     'password' => 'CAMBIAR_ESTA_PASSWORD',
     'base_url' => 'https://tudominio.com',
+    'timezone' => 'Europe/Madrid',
     'mail_from' => 'sat@tudominio.com',
     'setup_token' => 'CAMBIAR_ESTE_TOKEN',
 ];

@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import bcrypt from 'bcryptjs';
 
 const inputDir =
   process.argv[2]?.trim() ||
@@ -89,13 +90,23 @@ function buildUserMap(authUsers, usuariosSat, tecnicos, movimientos) {
     if (!row.email) {
       throw new Error(`El usuario ${userId} no tiene email y no se puede migrar.`);
     }
-    if (!row.encrypted_password) {
-      throw new Error(`El usuario ${userId} no tiene encrypted_password y no se puede migrar.`);
-    }
     out.push(row);
   }
   out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
   return out;
+}
+
+function buildPasswordHash(row, tempPasswordHash) {
+  if (row.encrypted_password) {
+    return row.encrypted_password;
+  }
+  if (!tempPasswordHash) {
+    throw new Error(
+      `El usuario ${row.id} no tiene encrypted_password en Supabase. ` +
+        'Define MIGRATION_TEMP_PASSWORD para migrarlo con contraseña temporal.',
+    );
+  }
+  return tempPasswordHash;
 }
 
 async function main() {
@@ -124,6 +135,10 @@ async function main() {
   ]);
 
   const usuarios = buildUserMap(authUsers, usuariosSat, tecnicos, inventarioMovimientos);
+  const tempPassword = (process.env.MIGRATION_TEMP_PASSWORD || '').trim();
+  const tempPasswordHash = tempPassword
+    ? bcrypt.hashSync(tempPassword, 10).replace(/^\$2b\$/, '$2y$')
+    : '';
   const maxNumeroTicket = ordenesTrabajo.reduce((max, row) => {
     const ticket = Number(row.numero_ticket || 0);
     return Number.isFinite(ticket) && ticket > max ? ticket : max;
@@ -155,7 +170,7 @@ async function main() {
       (row) => ({
         id: sqlValue(ensureRequired(row, 'id', 'auth.users')),
         email: sqlValue(ensureRequired(row, 'email', 'auth.users')),
-        password_hash: sqlValue(ensureRequired(row, 'encrypted_password', 'auth.users')),
+        password_hash: sqlValue(buildPasswordHash(row, tempPasswordHash)),
         mfa_secret: 'NULL',
         mfa_enabled: '0',
         activo: row.deleted_at || row.banned_until ? '0' : '1',

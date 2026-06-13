@@ -2,15 +2,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const TABLES_PUBLIC = [
-  'clientes',
-  'equipos',
-  'tecnicos',
-  'usuarios_sat',
-  'inventario_materiales',
-  'ordenes_trabajo',
-  'materiales_orden',
-  'inventario_movimientos',
-  'ordenes_trabajo_gps',
+  { table: 'clientes', orderBy: 'id' },
+  { table: 'equipos', orderBy: 'id' },
+  { table: 'tecnicos', orderBy: 'id' },
+  { table: 'usuarios_sat', orderBy: 'user_id' },
+  { table: 'inventario_materiales', orderBy: 'id' },
+  { table: 'ordenes_trabajo', orderBy: 'id' },
+  { table: 'materiales_orden', orderBy: 'id' },
+  { table: 'inventario_movimientos', orderBy: 'id' },
+  { table: 'ordenes_trabajo_gps', orderBy: 'id' },
 ];
 
 const AUTH_USERS_SELECT = [
@@ -92,6 +92,56 @@ async function fetchAllRows({ schema, table, select = '*', orderBy = 'id', pageS
   return rows;
 }
 
+async function fetchAdminUsers({ pageSize = 100 } = {}) {
+  const rows = [];
+  let page = 1;
+
+  for (;;) {
+    const url = `${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=${pageSize}`;
+    const res = await fetch(url, {
+      headers: {
+        apikey: SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Error ${res.status} al consultar ${url}: ${text}`);
+    }
+
+    const data = await res.json();
+    const batch = Array.isArray(data?.users) ? data.users : [];
+    if (batch.length === 0) {
+      break;
+    }
+
+    rows.push(
+      ...batch.map((row) => ({
+        id: row.id ?? null,
+        email: row.email ?? null,
+        encrypted_password: null,
+        created_at: row.created_at ?? null,
+        updated_at: row.updated_at ?? null,
+        email_confirmed_at: row.email_confirmed_at ?? row.confirmed_at ?? null,
+        last_sign_in_at: row.last_sign_in_at ?? null,
+        banned_until: row.banned_until ?? null,
+        is_anonymous: row.is_anonymous ?? false,
+        deleted_at: row.deleted_at ?? null,
+      })),
+    );
+
+    if (batch.length < pageSize) {
+      break;
+    }
+    page += 1;
+  }
+
+  rows.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  return rows;
+}
+
 async function main() {
   await ensureDir(outputDir);
 
@@ -101,8 +151,8 @@ async function main() {
     files: [],
   };
 
-  for (const table of TABLES_PUBLIC) {
-    const rows = await fetchAllRows({ schema: 'public', table, select: '*', orderBy: 'id' });
+  for (const { table, orderBy } of TABLES_PUBLIC) {
+    const rows = await fetchAllRows({ schema: 'public', table, select: '*', orderBy });
     const fileName = `${table}.json`;
     await fs.writeFile(
       path.join(outputDir, fileName),
@@ -113,12 +163,7 @@ async function main() {
     console.log(`Exportada ${table}: ${rows.length} filas`);
   }
 
-  const authUsers = await fetchAllRows({
-    schema: 'auth',
-    table: 'users',
-    select: AUTH_USERS_SELECT,
-    orderBy: 'id',
-  });
+  const authUsers = await fetchAdminUsers();
   await fs.writeFile(
     path.join(outputDir, 'auth.users.json'),
     `${JSON.stringify(authUsers, null, 2)}\n`,

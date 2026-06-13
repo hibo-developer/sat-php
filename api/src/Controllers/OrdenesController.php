@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Sat\Api\Controllers;
 
+use Sat\Api\App;
 use Sat\Api\Auth;
 use Sat\Api\Db;
 use Sat\Api\Http;
@@ -275,7 +276,13 @@ final class OrdenesController
         $mecanicos = max(1, (int)($orden['mecanicos_intervinieron'] ?? 1));
 
         $tarifaManoObra = $this->num($body['tarifa_mano_obra_hora'] ?? null, true, 'tarifa_mano_obra_hora');
-        $horasManoObra = $this->num($body['horas_mano_obra'] ?? null, true, 'horas_mano_obra');
+        $fechaInicioValoracion = array_key_exists('fecha_inicio', $body) ? $this->isoToMysqlNullable($body['fecha_inicio']) : null;
+        $fechaFinValoracion = array_key_exists('fecha_fin', $body) ? $this->isoToMysqlNullable($body['fecha_fin']) : null;
+        $horasManoObra = $this->resolverHorasManoObra(
+            $body['horas_mano_obra'] ?? null,
+            $fechaInicioValoracion,
+            $fechaFinValoracion
+        );
         $tarifaKm = $this->num($body['tarifa_desplazamiento_km'] ?? null, true, 'tarifa_desplazamiento_km');
         $kmFact = $this->num($body['km_desplazamiento_facturables'] ?? null, true, 'km_desplazamiento_facturables');
 
@@ -314,7 +321,9 @@ final class OrdenesController
                                  aplica_recargo_fuera_horario = :afo,
                                  coste_mano_obra_total = :cmo,
                                  coste_desplazamiento_total = :cd,
-                                 coste_total = :ct
+                                 coste_total = :ct,
+                                 fecha_inicio = COALESCE(:fi, fecha_inicio),
+                                 fecha_fin = COALESCE(:ff, fecha_fin)
                              WHERE id = :id');
         $st->execute([
             ':cm' => ($costeMaterialesEditable !== null && $costeMaterialesEditable !== '') ? $costeMateriales : null,
@@ -329,6 +338,8 @@ final class OrdenesController
             ':cmo' => $costeMano,
             ':cd' => $costeDespl,
             ':ct' => $costeTotal,
+            ':fi' => $fechaInicioValoracion,
+            ':ff' => $fechaFinValoracion,
             ':id' => $id,
         ]);
 
@@ -465,6 +476,39 @@ final class OrdenesController
         return $n;
     }
 
+    private function isoToMysqlNullable(mixed $valor): ?string
+    {
+        if ($valor === null) {
+            return null;
+        }
+        $texto = trim((string)$valor);
+        if ($texto === '') {
+            return null;
+        }
+        return $this->isoToMysql($texto);
+    }
+
+    private function resolverHorasManoObra(mixed $valor, ?string $fechaInicioMysql, ?string $fechaFinMysql): float
+    {
+        if ($valor !== null && $valor !== '') {
+            return $this->num($valor, true, 'horas_mano_obra');
+        }
+
+        if ($fechaInicioMysql !== null && $fechaFinMysql !== null) {
+            $inicioTs = strtotime($fechaInicioMysql);
+            $finTs = strtotime($fechaFinMysql);
+            if ($inicioTs !== false && $finTs !== false && $finTs > $inicioTs) {
+                $minutos = max(1, (int)ceil(($finTs - $inicioTs) / 60));
+                if ($minutos < 60) {
+                    return 1.0;
+                }
+                return round($minutos / 60, 2);
+            }
+        }
+
+        Http::json(['error' => 'horas_mano_obra es obligatorio.'], 400);
+    }
+
     public function guardarInforme(Request $request, array $params): void
     {
         Auth::requireCsrf($request);
@@ -472,13 +516,38 @@ final class OrdenesController
         $id = (string)($params['id'] ?? '');
         $body = is_array($request->body) ? $request->body : [];
         $pdfUrl = trim((string)($body['pdfUrl'] ?? $body['informe_pdf_url'] ?? ''));
+        $referenciaInforme = trim((string)($body['referenciaInforme'] ?? $body['referencia_informe'] ?? ''));
         if ($id === '' || $pdfUrl === '') {
             Http::json(['error' => 'ID de orden y pdfUrl son obligatorios.'], 400);
         }
         $pdo = Db::pdo();
-        $st = $pdo->prepare('UPDATE ordenes_trabajo SET informe_pdf_url = :u WHERE id = :id');
-        $st->execute([':u' => $pdfUrl, ':id' => $id]);
+        if ($referenciaInforme !== '') {
+            $st = $pdo->prepare('UPDATE ordenes_trabajo SET informe_pdf_url = :u, referencia_informe = :r WHERE id = :id');
+            $st->execute([':u' => $pdfUrl, ':r' => $referenciaInforme, ':id' => $id]);
+        } else {
+            $st = $pdo->prepare('UPDATE ordenes_trabajo SET informe_pdf_url = :u WHERE id = :id');
+            $st->execute([':u' => $pdfUrl, ':id' => $id]);
+        }
         Http::json(['ok' => true]);
+    }
+
+    public function reservarReferenciaInforme(Request $request, array $params): void
+    {
+        Auth::requireCsrf($request);
+        Auth::requireRole(['admin', 'oficina']);
+        $id = trim((string)($params['id'] ?? ''));
+        if ($id === '') {
+            Http::json(['error' => 'ID de orden obligatorio.'], 400);
+        }
+
+        $pdo = Db::pdo();
+        if (!$this->existe($pdo, 'ordenes_trabajo', $id)) {
+            Http::json(['error' => 'La orden indicada no existe.'], 404);
+        }
+
+        $this->ensureInformeSequenceTable($pdo);
+        $reserva = $this->reservarConsecutivoInforme($pdo);
+        Http::json($reserva);
     }
 
     private function agruparOrdenes(array $rows): array
@@ -553,6 +622,7 @@ final class OrdenesController
             'foto_url' => $r['foto_url'],
             'firma_url' => $r['firma_url'],
             'informe_pdf_url' => $r['informe_pdf_url'],
+            'referencia_informe' => $r['referencia_informe'],
             'fecha_inicio' => $this->mysqlToIso($r['fecha_inicio'] ?? null),
             'fecha_fin' => $this->mysqlToIso($r['fecha_fin'] ?? null),
             'desplazamiento_inicio' => $this->mysqlToIso($r['desplazamiento_inicio'] ?? null),
@@ -611,6 +681,78 @@ final class OrdenesController
         $st = $pdo->prepare("SELECT id FROM {$tabla} WHERE id = :id");
         $st->execute([':id' => $id]);
         return (bool)$st->fetch();
+    }
+
+    private function ensureInformeSequenceTable(\PDO $pdo): void
+    {
+        static $checked = false;
+        if ($checked) {
+            return;
+        }
+
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS informes_consecutivos_diarios (
+                fecha DATE NOT NULL,
+                ultimo_numero INT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (fecha)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        $checked = true;
+    }
+
+    private function reservarConsecutivoInforme(\PDO $pdo): array
+    {
+        $timezone = $this->appTimeZone();
+        $ahora = new \DateTimeImmutable('now', $timezone);
+        $fechaClave = $ahora->format('Y-m-d');
+
+        $pdo->beginTransaction();
+        try {
+            $st = $pdo->prepare('SELECT ultimo_numero FROM informes_consecutivos_diarios WHERE fecha = :fecha FOR UPDATE');
+            $st->execute([':fecha' => $fechaClave]);
+            $row = $st->fetch();
+
+            if ($row) {
+                $siguiente = ((int)$row['ultimo_numero']) + 1;
+                $upd = $pdo->prepare('UPDATE informes_consecutivos_diarios SET ultimo_numero = :n WHERE fecha = :fecha');
+                $upd->execute([':n' => $siguiente, ':fecha' => $fechaClave]);
+            } else {
+                $siguiente = 1;
+                $ins = $pdo->prepare('INSERT INTO informes_consecutivos_diarios (fecha, ultimo_numero) VALUES (:fecha, :n)');
+                $ins->execute([':fecha' => $fechaClave, ':n' => $siguiente]);
+            }
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        $referencia = 'SAT-' . $ahora->format('ymd') . '-' . str_pad((string)$siguiente, 2, '0', STR_PAD_LEFT);
+        return [
+            'reference' => $referencia,
+            'filename' => $referencia . '.pdf',
+            'sequence' => $siguiente,
+            'date' => $fechaClave,
+            'timezone' => $timezone->getName(),
+        ];
+    }
+
+    private function appTimeZone(): \DateTimeZone
+    {
+        $name = trim((string)App::config('timezone', ''));
+        if ($name === '') {
+            $name = ini_get('date.timezone') ?: date_default_timezone_get();
+        }
+
+        try {
+            return new \DateTimeZone($name ?: 'UTC');
+        } catch (\Throwable) {
+            return new \DateTimeZone('UTC');
+        }
     }
 
     private function tecnicoIdParaUserId(string $userId): ?string

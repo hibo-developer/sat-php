@@ -90,6 +90,10 @@ final class StorageController
         $mime = $this->mimeForFile($file);
         header('Content-Type: ' . $mime);
         header('Content-Length: ' . (string)filesize($file));
+        if ($bucket === 'informes-partes') {
+            $downloadName = basename($file);
+            header('Content-Disposition: attachment; filename="' . addslashes($downloadName) . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
+        }
         readfile($file);
         exit;
     }
@@ -121,7 +125,8 @@ final class StorageController
         }
 
         $ext = $this->extensionFromUpload((string)($archivo['name'] ?? ''), (string)($archivo['type'] ?? ''));
-        $name = (string)time() . '-' . substr(bin2hex(random_bytes(8)), 0, 12) . ($ext ? ('.' . $ext) : '');
+        $originalName = trim((string)($archivo['name'] ?? ''));
+        $name = $this->storedUploadFilename($bucket, $originalName, $ext);
         $relPath = rtrim($pathPrefix, '/') . '/' . $name;
 
         $root = (string)App::config('storage_root');
@@ -138,6 +143,7 @@ final class StorageController
 
         Http::json([
             'reference' => 'sb://' . $bucket . '/' . $relPath,
+            'filename' => $name,
         ]);
     }
 
@@ -167,6 +173,34 @@ final class StorageController
             'image/webp' => 'webp',
             default => '',
         };
+    }
+
+    private function storedUploadFilename(string $bucket, string $originalName, string $ext): string
+    {
+        if ($bucket === 'informes-partes') {
+            $safe = $this->sanitizeFilename($originalName, $ext ?: 'pdf');
+            if ($safe !== '') {
+                return $safe;
+            }
+        }
+
+        return (string)time() . '-' . substr(bin2hex(random_bytes(8)), 0, 12) . ($ext ? ('.' . $ext) : '');
+    }
+
+    private function sanitizeFilename(string $originalName, string $defaultExt): string
+    {
+        $base = pathinfo($originalName, PATHINFO_FILENAME);
+        $base = preg_replace('/[^A-Za-z0-9._-]+/', '-', (string)$base) ?? '';
+        $base = trim($base, '.- ');
+        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        $ext = $ext !== '' ? $ext : strtolower($defaultExt);
+        if ($ext === 'jpeg') {
+            $ext = 'jpg';
+        }
+        if ($base === '') {
+            return '';
+        }
+        return $base . ($ext !== '' ? ('.' . $ext) : '');
     }
 
     private function tecnicoIdParaUserId(string $userId): ?string

@@ -14,26 +14,24 @@ body {
   margin: 0;
   min-height: 100vh;
   min-height: 100dvh;
-  background-color: #eff4fc;
+  background-color: #eef2fb;
   background:
-    radial-gradient(circle at 10% 0%, rgba(227, 0, 45, 0.14) 0%, rgba(227, 0, 45, 0.09) 14%, rgba(227, 0, 45, 0.04) 24%, rgba(227, 0, 45, 0) 38%),
-    radial-gradient(circle at 90% 5%, rgba(34, 52, 127, 0.22) 0%, rgba(34, 52, 127, 0.14) 16%, rgba(34, 52, 127, 0.06) 30%, rgba(34, 52, 127, 0) 48%),
+    radial-gradient(circle at 14% 12%, rgba(227, 0, 45, 0.12) 0%, rgba(227, 0, 45, 0.07) 18%, rgba(227, 0, 45, 0.025) 34%, rgba(227, 0, 45, 0) 56%),
+    radial-gradient(circle at 86% 8%, rgba(34, 52, 127, 0.18) 0%, rgba(34, 52, 127, 0.11) 22%, rgba(34, 52, 127, 0.04) 40%, rgba(34, 52, 127, 0) 62%),
     linear-gradient(
       180deg,
       #eef2fb 0%,
-      #eef3fc 12%,
-      #f1f5fd 24%,
-      #f5f8fe 38%,
-      #f8faff 52%,
-      #f5f8ff 66%,
-      #f1f5ff 82%,
-      #eef3ff 100%
+      #f1f4fc 28%,
+      #f5f7fd 52%,
+      #f2f5fd 76%,
+      #eef2fb 100%
     );
+  background-repeat: no-repeat;
+  background-size: 100% 100%, 100% 100%, 100% 100%;
+  background-attachment: fixed;
   color: #0f172a;
   overflow-x: hidden;
   position: relative;
-  will-change: background;
-  backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -47,22 +45,6 @@ body,
   min-height: 100vh;
   min-height: 100dvh;
   position: relative;
-}
-
-/* Micro-texture to reduce visible banding in Android WebView/tablets. */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0, rgba(255, 255, 255, 0.035) 1px, transparent 1px, transparent 3px),
-    linear-gradient(90deg, rgba(15, 23, 42, 0.02) 0, rgba(15, 23, 42, 0.02) 1px, transparent 1px, transparent 4px);
-  opacity: 0.18;
-  mix-blend-mode: soft-light;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 #root > * {

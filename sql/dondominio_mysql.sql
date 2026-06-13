@@ -1,15 +1,12 @@
 -- SAT COTEPA para DonDominio
 -- MySQL 8.0+
+-- Hosting compartido: la base de datos debe existir previamente en el panel.
 
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 SET foreign_key_checks = 0;
 
-CREATE DATABASE IF NOT EXISTS sat
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE sat;
+USE `ddb274868`;
 
 DROP TABLE IF EXISTS ordenes_trabajo_gps;
 DROP TABLE IF EXISTS materiales_orden;
@@ -170,6 +167,13 @@ CREATE TABLE ordenes_trabajo (
   CONSTRAINT fk_ordenes_tecnico
     FOREIGN KEY (tecnico_id) REFERENCES tecnicos (id)
     ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE informes_consecutivos_diarios (
+  fecha DATE NOT NULL,
+  ultimo_numero INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (fecha)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE materiales_orden (

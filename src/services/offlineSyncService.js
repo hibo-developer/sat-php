@@ -503,18 +503,35 @@ export async function procesarColaPartes() {
         await db.pending_partes.delete(item.id);
         procesados += 1;
       } catch (err) {
-        // Marcamos error y reintentamos en el siguiente ciclo.
+        const info = clasificarError(err);
         await db.pending_partes.update(item.id, {
           intentos: (item.intentos || 0) + 1,
           ultimoError: String(err?.message || err),
         });
-        // Si es error de red, paramos para no consumir intentos en cadena.
-        if (esErrorRed(err)) {
+
+        // Si el payload ya no es válido (400/401/403), lo registramos como
+        // descartado para evitar que la app lo reintente en cada arranque.
+        if (!info.retryable) {
+          await registrarConflicto({
+            ordenId: item?.payload?.orden_id || null,
+            tipo: 'parte',
+            baseUpdatedAt: null,
+            remoteUpdatedAt: null,
+            clientUpdatedAt: item.createdAt,
+            payload: item.payload || null,
+            resolucion: 'discarded',
+            motivo: err?.message || String(err),
+          });
+          await db.pending_partes.delete(item.id);
+          procesados += 1;
+          continue;
+        }
+
+        // Si es error de red/servidor, paramos para no consumir intentos en cadena.
+        if (info.retryable) {
           huboError = true;
           break;
         }
-        // Si es error de validación (cliente borrado, stock, etc.), seguimos
-        // con el siguiente para no bloquear toda la cola.
       }
     }
   } finally {

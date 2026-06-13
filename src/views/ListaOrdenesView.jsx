@@ -12,6 +12,7 @@ import {
   obtenerTecnicosActivos,
 } from '../services/catalogosService';
 import { tieneBackendApi, obtenerUrlFirmadaStorage } from '../services/backendClient';
+import { resolverNombreDescargaInforme } from '../services/informeNombre';
 
 const estilosEstado = {
   Pendiente: {
@@ -1063,9 +1064,6 @@ function TarjetaOrden({
         return;
       }
       const payload = { ...formularioValoracion };
-      if (!horasManoObraEditadas) {
-        delete payload.horas_mano_obra;
-      }
       if (inicio && fin) {
         const iniIso = datetimeLocalAIso(inicio);
         const finIso = datetimeLocalAIso(fin);
@@ -1121,14 +1119,19 @@ function TarjetaOrden({
       if (!url) {
         throw new Error('No se pudo obtener el enlace del informe.');
       }
+      const respuesta = await fetch(url, { credentials: 'include' });
+      if (!respuesta.ok) {
+        throw new Error('No se pudo descargar el informe.');
+      }
+      const blob = await respuesta.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const enlace = document.createElement('a');
-      enlace.href = url;
-      enlace.target = '_blank';
-      enlace.rel = 'noreferrer';
-      enlace.download = `informe-${orden.numero_ticket || orden.id}.pdf`;
+      enlace.href = blobUrl;
+      enlace.download = resolverNombreDescargaInforme(orden);
       document.body.appendChild(enlace);
       enlace.click();
       document.body.removeChild(enlace);
+      URL.revokeObjectURL(blobUrl);
     } catch (err) {
       onNotificar?.({
         tipo: 'error',
@@ -1932,13 +1935,13 @@ export function ListaOrdenesView({ rolUsuario }) {
           if (!urlInforme) {
             continue;
           }
-          const respuesta = await fetch(urlInforme);
+          const respuesta = await fetch(urlInforme, { credentials: 'include' });
           if (!respuesta.ok) {
             continue;
           }
 
           const blob = await respuesta.blob();
-          const nombre = `informe-${orden.numero_ticket || orden.id}.pdf`;
+          const nombre = resolverNombreDescargaInforme(orden);
           zip.file(nombre, blob);
           agregados += 1;
         } catch {

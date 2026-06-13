@@ -53,16 +53,25 @@ async function listFolder(bucket, prefix = '') {
 
 async function downloadObject(bucket, objectPath) {
   const url = `${SUPABASE_URL}/storage/v1/object/${bucket}/${objectPath}`;
-  const res = await fetch(url, {
-    headers: authHeaders(),
-  });
+  let lastError = null;
 
-  if (!res.ok) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const res = await fetch(url, {
+      headers: authHeaders(),
+    });
+
+    if (res.ok) {
+      return Buffer.from(await res.arrayBuffer());
+    }
+
     const text = await res.text().catch(() => '');
-    throw new Error(`No se pudo descargar ${bucket}/${objectPath}: ${res.status} ${text}`);
+    lastError = new Error(`No se pudo descargar ${bucket}/${objectPath}: ${res.status} ${text}`);
+    if (attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
   }
 
-  return Buffer.from(await res.arrayBuffer());
+  throw lastError;
 }
 
 function isFolder(item) {

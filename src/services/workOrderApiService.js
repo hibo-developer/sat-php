@@ -18,6 +18,24 @@ function validarEstadoEditable(estado) {
   return estadoLimpio;
 }
 
+export function mapearValoracionEconomicaParaInforme(orden) {
+  return {
+    costeMaterialesEditable: orden?.coste_materiales_editable ?? null,
+    tarifaManoObraHora: orden?.tarifa_mano_obra_hora ?? null,
+    horasManoObra: orden?.horas_mano_obra ?? null,
+    mecanicosIntervinieron: orden?.mecanicos_intervinieron ?? null,
+    tarifaDesplazamientoKm: orden?.tarifa_desplazamiento_km ?? null,
+    kmDesplazamientoFacturables: orden?.km_desplazamiento_facturables ?? null,
+    recargoFestivoPct: orden?.recargo_festivo_pct ?? null,
+    recargoFueraHorarioPct: orden?.recargo_fuera_horario_pct ?? null,
+    aplicaRecargoFestivo: orden?.aplica_recargo_festivo ?? null,
+    aplicaRecargoFueraHorario: orden?.aplica_recargo_fuera_horario ?? null,
+    costeManoObraTotal: orden?.coste_mano_obra_total ?? null,
+    costeDesplazamientoTotal: orden?.coste_desplazamiento_total ?? null,
+    costeTotal: orden?.coste_total ?? null,
+  };
+}
+
 export async function obtenerOrdenesTrabajo() {
   const data = await fetchJson('/ordenes');
   return Array.isArray(data) ? data : [];
@@ -110,14 +128,32 @@ export async function eliminarOrdenTrabajo(ordenId) {
 
 export async function guardarInformePdfUrl(ordenId, pdfUrl) {
   const id = limpiarTexto(ordenId);
-  const url = limpiarTexto(pdfUrl);
+  const payload = typeof pdfUrl === 'object' && pdfUrl !== null ? pdfUrl : { pdfUrl };
+  const url = limpiarTexto(payload.pdfUrl);
+  const referenciaInforme = limpiarTexto(payload.referenciaInforme);
   if (!id) {
     throw new Error('ID de orden requerido para guardar el informe PDF.');
   }
   if (!url) {
     throw new Error('URL PDF requerida.');
   }
-  await fetchJson(`/ordenes/${id}/informe`, { method: 'POST', body: { pdfUrl: url } });
+  await fetchJson(`/ordenes/${id}/informe`, { method: 'POST', body: { pdfUrl: url, referenciaInforme } });
+}
+
+export async function reservarReferenciaInforme(ordenId) {
+  const id = limpiarTexto(ordenId);
+  if (!id) {
+    throw new Error('ID de orden requerido para reservar la referencia del informe.');
+  }
+
+  const data = await fetchJson(`/ordenes/${id}/informe-referencia`, { method: 'POST', body: {} });
+  return {
+    referenciaInforme: limpiarTexto(data?.reference),
+    nombreArchivo: limpiarTexto(data?.filename),
+    secuencialDiario: Number(data?.sequence) || 1,
+    fechaInforme: limpiarTexto(data?.date),
+    timezone: limpiarTexto(data?.timezone),
+  };
 }
 
 export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
@@ -138,21 +174,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
     return m[1].split('|').map((u) => u.trim()).filter(Boolean);
   })();
 
-  const valoracionEconomica = {
-    coste_materiales_editable: orden?.coste_materiales_editable ?? null,
-    tarifa_mano_obra_hora: orden?.tarifa_mano_obra_hora ?? null,
-    horas_mano_obra: orden?.horas_mano_obra ?? null,
-    mecanicos_intervinieron: orden?.mecanicos_intervinieron ?? null,
-    tarifa_desplazamiento_km: orden?.tarifa_desplazamiento_km ?? null,
-    km_desplazamiento_facturables: orden?.km_desplazamiento_facturables ?? null,
-    recargo_festivo_pct: orden?.recargo_festivo_pct ?? null,
-    recargo_fuera_horario_pct: orden?.recargo_fuera_horario_pct ?? null,
-    aplica_recargo_festivo: orden?.aplica_recargo_festivo ?? null,
-    aplica_recargo_fuera_horario: orden?.aplica_recargo_fuera_horario ?? null,
-    coste_mano_obra_total: orden?.coste_mano_obra_total ?? null,
-    coste_desplazamiento_total: orden?.coste_desplazamiento_total ?? null,
-    coste_total: orden?.coste_total ?? null,
-  };
+  const valoracionEconomica = mapearValoracionEconomicaParaInforme(orden);
 
   const formulario = {
     cliente_id: orden?.clientes?.id || orden?.cliente_id || '',
@@ -163,6 +185,8 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
     descripcion_problema: orden?.descripcion_averia || '',
     materialesTexto: '',
   };
+
+  const reservaInforme = await reservarReferenciaInforme(id);
 
   const { pdfUrl } = await generarYSubirInformeParte({
     parte: orden,
@@ -177,15 +201,20 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
     nombreFirmante,
     firmaUrl: orden?.firma_url || '',
     fotosIntervencionUrls: fotos,
-    secuencialDiario: null,
+    secuencialDiario: reservaInforme.secuencialDiario,
     fechaInformeIso: orden?.fecha_fin || null,
+    referenciaInforme: reservaInforme.referenciaInforme,
   });
 
   if (pdfUrl) {
-    await guardarInformePdfUrl(id, pdfUrl);
+    await guardarInformePdfUrl(id, { pdfUrl, referenciaInforme: reservaInforme.referenciaInforme });
   }
 
-  return { ...orden, informe_pdf_url: pdfUrl || orden?.informe_pdf_url || null };
+  return {
+    ...orden,
+    informe_pdf_url: pdfUrl || orden?.informe_pdf_url || null,
+    referencia_informe: reservaInforme.referenciaInforme || orden?.referencia_informe || null,
+  };
 }
 
 export async function editarParteFinalizado(ordenId, payload) {
@@ -233,21 +262,7 @@ export async function editarParteFinalizado(ordenId, payload) {
     return m[1].split('|').map((u) => u.trim()).filter(Boolean);
   })();
 
-  const valoracionEconomica = {
-    coste_materiales_editable: actualizado?.coste_materiales_editable ?? null,
-    tarifa_mano_obra_hora: actualizado?.tarifa_mano_obra_hora ?? null,
-    horas_mano_obra: actualizado?.horas_mano_obra ?? null,
-    mecanicos_intervinieron: actualizado?.mecanicos_intervinieron ?? null,
-    tarifa_desplazamiento_km: actualizado?.tarifa_desplazamiento_km ?? null,
-    km_desplazamiento_facturables: actualizado?.km_desplazamiento_facturables ?? null,
-    recargo_festivo_pct: actualizado?.recargo_festivo_pct ?? null,
-    recargo_fuera_horario_pct: actualizado?.recargo_fuera_horario_pct ?? null,
-    aplica_recargo_festivo: actualizado?.aplica_recargo_festivo ?? null,
-    aplica_recargo_fuera_horario: actualizado?.aplica_recargo_fuera_horario ?? null,
-    coste_mano_obra_total: actualizado?.coste_mano_obra_total ?? null,
-    coste_desplazamiento_total: actualizado?.coste_desplazamiento_total ?? null,
-    coste_total: actualizado?.coste_total ?? null,
-  };
+  const valoracionEconomica = mapearValoracionEconomicaParaInforme(actualizado);
 
   const formulario = {
     cliente_id: actualizado?.clientes?.id || actualizado?.cliente_id || '',
@@ -258,6 +273,8 @@ export async function editarParteFinalizado(ordenId, payload) {
     descripcion_problema: actualizado?.descripcion_averia || '',
     materialesTexto: '',
   };
+
+  const reservaInforme = await reservarReferenciaInforme(id);
 
   const { pdfUrl } = await generarYSubirInformeParte({
     parte: actualizado,
@@ -272,13 +289,18 @@ export async function editarParteFinalizado(ordenId, payload) {
     nombreFirmante,
     firmaUrl: actualizado?.firma_url || '',
     fotosIntervencionUrls: fotos,
-    secuencialDiario: null,
+    secuencialDiario: reservaInforme.secuencialDiario,
     fechaInformeIso: actualizado?.fecha_fin || null,
+    referenciaInforme: reservaInforme.referenciaInforme,
   });
 
   if (pdfUrl) {
-    await guardarInformePdfUrl(id, pdfUrl);
+    await guardarInformePdfUrl(id, { pdfUrl, referenciaInforme: reservaInforme.referenciaInforme });
   }
 
-  return { ...actualizado, informe_pdf_url: pdfUrl || actualizado?.informe_pdf_url || null };
+  return {
+    ...actualizado,
+    informe_pdf_url: pdfUrl || actualizado?.informe_pdf_url || null,
+    referencia_informe: reservaInforme.referenciaInforme || actualizado?.referencia_informe || null,
+  };
 }

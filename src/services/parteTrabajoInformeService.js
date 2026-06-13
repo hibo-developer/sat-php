@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import logoCotepaUrl from '../assets/cotepa.jpg';
 import { obtenerUrlFirmadaStorage } from './backendClient';
 import { fetchJson } from './apiClient';
+import { formatearNombreInformePdf, formatearReferenciaInforme } from './informeNombre';
 
 // =====================================================================
 // Constantes de diseño - paleta corporativa COTEPA
@@ -105,16 +106,6 @@ function resolverFechaInformeIso({ parte, formulario, seguimientoTiempo, interve
   }
 
   return new Date().toISOString();
-}
-
-function crearReferenciaInforme(fechaIso, secuencial) {
-  const f = new Date(fechaIso);
-  const ahora = Number.isFinite(f.getTime()) ? f : new Date();
-  const dd = String(ahora.getDate()).padStart(2, '0');
-  const mm = String(ahora.getMonth() + 1).padStart(2, '0');
-  const yy = String(ahora.getFullYear()).slice(-2);
-  const seq = String(Number.isFinite(secuencial) ? secuencial : 1).padStart(2, '0');
-  return `SAT-${yy}${mm}${dd}-${seq}`;
 }
 
 function resolverMinutosFase(fase) {
@@ -883,6 +874,7 @@ async function crearPdfInforme({
   fotosIntervencionUrls,
   secuencialDiario,
   fechaInformeIso,
+  referenciaInforme,
 }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
   const fechaBaseIso = resolverFechaInformeIso({ parte, formulario, seguimientoTiempo, intervension });
@@ -893,7 +885,8 @@ async function crearPdfInforme({
       fechaEmisionIso = f.toISOString();
     }
   }
-  const referencia = crearReferenciaInforme(fechaEmisionIso, secuencialDiario);
+  const referencia = String(referenciaInforme || '').trim()
+    || formatearReferenciaInforme(fechaEmisionIso, secuencialDiario);
   const logoDataUrl = await obtenerLogoEmpresa();
 
   metaInforme = {
@@ -979,7 +972,7 @@ async function crearPdfInforme({
   dibujarPiePaginas(doc);
 
   const refSegura = referencia.replace(/\//g, '-').replace(/[^a-zA-Z0-9\-_]/g, '');
-  return { pdfBlob: doc.output('blob'), nombreArchivo: `${refSegura}.pdf` };
+  return { pdfBlob: doc.output('blob'), nombreArchivo: formatearNombreInformePdf(refSegura) };
 }
 
 // =====================================================================
@@ -1010,20 +1003,6 @@ async function subirPdfInforme({ pdfBlob, nombreArchivo, clienteId, tecnicoId, o
   return data.reference;
 }
 
-async function obtenerSecuencialDiario(fechaIso) {
-  try {
-    const base = new Date(fechaIso);
-    const hoy = Number.isFinite(base.getTime()) ? base : new Date();
-    const key = `${hoy.getUTCFullYear()}-${hoy.getUTCMonth()}-${hoy.getUTCDate()}`;
-    const raw = localStorage.getItem(`sat_secuencial_${key}`) || '0';
-    const next = Number.parseInt(raw, 10) + 1;
-    localStorage.setItem(`sat_secuencial_${key}`, String(next));
-    return next;
-  } catch {
-    return 1;
-  }
-}
-
 export async function generarYSubirInformeParte({
   parte,
   formulario,
@@ -1039,11 +1018,12 @@ export async function generarYSubirInformeParte({
   fotosIntervencionUrls,
   secuencialDiario: secuencialDiarioEntrada,
   fechaInformeIso,
+  referenciaInforme,
 }) {
   const fechaBaseIso = resolverFechaInformeIso({ parte, formulario, seguimientoTiempo, intervension });
   const secuencialDiario = Number.isFinite(Number(secuencialDiarioEntrada)) && Number(secuencialDiarioEntrada) > 0
     ? Number(secuencialDiarioEntrada)
-    : await obtenerSecuencialDiario(fechaBaseIso);
+    : 1;
 
   const firmaAccesible = firmaUrl
     ? await obtenerUrlFirmadaStorage(firmaUrl, { expiresIn: 900 })
@@ -1068,6 +1048,7 @@ export async function generarYSubirInformeParte({
     fotosIntervencionUrls: fotosAccesibles,
     secuencialDiario,
     fechaInformeIso,
+    referenciaInforme,
   });
   const pdfUrl = await subirPdfInforme({
     pdfBlob,
@@ -1082,7 +1063,7 @@ export async function generarYSubirInformeParte({
 
 export async function generarInformeParteDemoLocal() {
   const ahoraIso = new Date().toISOString();
-  const secuencialDiario = await obtenerSecuencialDiario();
+  const secuencialDiario = 1;
   const { pdfBlob, nombreArchivo } = await crearPdfInforme({
     parte: { id: 'demo-local', tareas_realizadas: 'Sustitución de resistencia y limpieza de cámara. Verificación de termostato y prueba de carga.' },
     formulario: {

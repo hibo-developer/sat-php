@@ -25,7 +25,7 @@ final class AdminUsersController
             Http::json(['error' => 'Acción no soportada.'], 400);
         }
 
-        return match ($action) {
+        match ($action) {
             'list' => $this->list(),
             'create' => $this->create($payload),
             'update' => $this->update($u, $payload),

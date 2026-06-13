@@ -10,6 +10,7 @@ $cfg = [
     'charset' => 'utf8mb4',
     'storage_root' => dirname(__DIR__) . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'storage-data',
     'base_url' => getenv('SAT_BASE_URL') ?: '',
+    'timezone' => getenv('SAT_TIMEZONE') ?: 'Europe/Madrid',
     'mail_from' => getenv('SAT_MAIL_FROM') ?: 'sat@example.com',
     'setup_token' => getenv('SAT_SETUP_TOKEN') ?: '',
 ];

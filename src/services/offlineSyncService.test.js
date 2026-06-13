@@ -69,4 +69,29 @@ describe('offlineSyncService', () => {
     await offlineSync.encolarAccion({ tipo: 'actualizar', ordenId: 'ot-1', payload: { prioridad: 'urgente' } });
     expect(await offlineSync.contarPendientes()).toBe(1);
   });
+
+  it('descarta partes pendientes con error 400 para no reintentarlos en bucle', async () => {
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { onLine: true },
+      configurable: true,
+    });
+    crearParteTrabajoMock.mockRejectedValueOnce(Object.assign(new Error('El técnico seleccionado está inactivo.'), { status: 400 }));
+
+    await offlineSync.encolarParteFinalizado({
+      payload: {
+        orden_id: 'ot-2',
+        tecnico_id: 'tec-inactivo',
+      },
+      fotos: [],
+      firmaDataUrl: 'data:image/png;base64,AA==',
+      contexto: {},
+    });
+
+    const resultado = await offlineSync.procesarColaPartes();
+
+    expect(resultado.procesados).toBe(1);
+    expect(resultado.huboError).toBe(false);
+    expect(await offlineSync.contarPartesPendientes()).toBe(0);
+    expect(await db.sync_conflicts.count()).toBe(1);
+  });
 });
