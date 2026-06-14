@@ -63,6 +63,7 @@ export function useTarjetaOrden({
   orden,
   onActualizar,
   onValorarFinalizada,
+  onEditarParteCompleto,
   onEliminar,
   onNotificar,
 }) {

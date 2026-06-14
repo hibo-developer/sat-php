@@ -86,6 +86,7 @@ export function TarjetaOrden({
     orden,
     onActualizar,
     onValorarFinalizada,
+    onEditarParteCompleto,
     onEliminar,
     onNotificar,
   });
