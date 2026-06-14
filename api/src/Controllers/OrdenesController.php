@@ -379,10 +379,12 @@ final class OrdenesController
             ? $body['fotos_eliminar']
             : ((isset($body['fotos_a_eliminar']) && is_array($body['fotos_a_eliminar'])) ? $body['fotos_a_eliminar'] : []);
         $fotosNuevas = isset($body['fotos_nuevas']) && is_array($body['fotos_nuevas']) ? $body['fotos_nuevas'] : [];
-        $materiales = isset($body['materiales']) && is_array($body['materiales']) ? $body['materiales'] : [];
+        $materialesPresentes = array_key_exists('materiales', $body) && is_array($body['materiales']);
+        $materiales = $materialesPresentes ? $body['materiales'] : [];
+        $costeMaterialesEditableBody = $body['coste_materiales_editable'] ?? null;
 
         $pdo = Db::pdo();
-        $st = $pdo->prepare('SELECT id, estado, descripcion_averia, tareas_realizadas, foto_url FROM ordenes_trabajo WHERE id = :id');
+        $st = $pdo->prepare('SELECT id, estado, descripcion_averia, tareas_realizadas, foto_url, coste_mano_obra_total, coste_desplazamiento_total FROM ordenes_trabajo WHERE id = :id');
         $st->execute([':id' => $id]);
         $orden = $st->fetch();
         if (!$orden) {
@@ -432,17 +434,9 @@ final class OrdenesController
         $fotoPrincipal = count($fotosFinal) > 0 ? $fotosFinal[0] : null;
 
         $setDesc = ($descripcion !== null && $descripcion !== '') ? $descripcion : (string)$orden['descripcion_averia'];
-        $st = $pdo->prepare('UPDATE ordenes_trabajo SET descripcion_averia = :d, tareas_realizadas = :t, foto_url = :f WHERE id = :id');
-        $st->execute([
-            ':d' => $setDesc,
-            ':t' => $tareasNueva,
-            ':f' => $fotoPrincipal,
-            ':id' => $id,
-        ]);
-
-        if (count($materiales) > 0) {
-            $del = $pdo->prepare('DELETE FROM materiales_orden WHERE orden_id = :id');
-            $del->execute([':id' => $id]);
+        $costeMaterialesCalculado = null;
+        if ($materialesPresentes) {
+            $costeMaterialesCalculado = 0.0;
             foreach ($materiales as $idx => $m) {
                 if (!is_array($m)) {
                     Http::json(['error' => 'Material inválido en la posición ' . ($idx + 1) . '.'], 400);
@@ -459,6 +453,44 @@ final class OrdenesController
                 if ($precio !== null && $precio !== '' && !is_numeric($precio)) {
                     Http::json(['error' => 'El precio del material de la posición ' . ($idx + 1) . ' no es válido.'], 400);
                 }
+                $costeMaterialesCalculado += $cantidad * (float)($precio === '' || $precio === null ? 0 : $precio);
+            }
+            $costeMaterialesCalculado = round($costeMaterialesCalculado, 2);
+        }
+
+        $costeMaterialesEditable = null;
+        if ($costeMaterialesEditableBody !== null && $costeMaterialesEditableBody !== '') {
+            if (!is_numeric($costeMaterialesEditableBody)) {
+                Http::json(['error' => 'coste_materiales_editable no es numérico.'], 400);
+            }
+            $costeMaterialesEditable = round((float)$costeMaterialesEditableBody, 2);
+        } elseif ($costeMaterialesCalculado !== null) {
+            $costeMaterialesEditable = $costeMaterialesCalculado;
+        }
+
+        $costeManoObraTotal = isset($orden['coste_mano_obra_total']) ? (float)$orden['coste_mano_obra_total'] : 0.0;
+        $costeDesplazamientoTotal = isset($orden['coste_desplazamiento_total']) ? (float)$orden['coste_desplazamiento_total'] : 0.0;
+        $costeTotalActualizado = $costeMaterialesEditable !== null
+            ? round($costeMaterialesEditable + $costeManoObraTotal + $costeDesplazamientoTotal, 2)
+            : null;
+
+        $st = $pdo->prepare('UPDATE ordenes_trabajo SET descripcion_averia = :d, tareas_realizadas = :t, foto_url = :f, coste_materiales_editable = COALESCE(:cme, coste_materiales_editable), coste_total = COALESCE(:ct, coste_total) WHERE id = :id');
+        $st->execute([
+            ':d' => $setDesc,
+            ':t' => $tareasNueva,
+            ':f' => $fotoPrincipal,
+            ':cme' => $costeMaterialesEditable,
+            ':ct' => $costeTotalActualizado,
+            ':id' => $id,
+        ]);
+
+        if ($materialesPresentes) {
+            $del = $pdo->prepare('DELETE FROM materiales_orden WHERE orden_id = :id');
+            $del->execute([':id' => $id]);
+            foreach ($materiales as $idx => $m) {
+                $nombre = trim((string)($m['nombre_material'] ?? ''));
+                $cantidad = (int)($m['cantidad'] ?? 0);
+                $precio = $m['precio_unitario'] ?? null;
                 $mid = \Sat\Api\Uuid::v4();
                 $stIns = $pdo->prepare('INSERT INTO materiales_orden (id, orden_id, material_id, nombre_material, cantidad, precio_unitario) VALUES (:id, :o, NULL, :n, :c, :p)');
                 $stIns->execute([

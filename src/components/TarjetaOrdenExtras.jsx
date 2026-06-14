@@ -4,8 +4,18 @@ import { obtenerUrlFirmadaStorage } from '../services/backendClient';
 export function BloqueEditarParteCompleto({
   orden,
   accionEnCurso,
-  onEditarParteCompleto,
+  onGuardarParteCompleto,
   onNotificar,
+  materiales,
+  onActualizarMaterial,
+  onEliminarMaterial,
+  onAgregarMaterial,
+  costeMaterialesValoracion,
+  totalMaterialesCalculado,
+  hayDiscrepanciaMateriales,
+  mensajeDiscrepanciaMateriales,
+  onAlinearMateriales,
+  onActualizarCosteMaterialesValoracion,
 }) {
   const [abierto, setAbierto] = useState(false);
   const [descripcionAveria, setDescripcionAveria] = useState(orden.descripcion || '');
@@ -14,13 +24,6 @@ export function BloqueEditarParteCompleto({
     const primerBloque = texto.split('|')[0] || '';
     return primerBloque.trim();
   });
-  const [materiales, setMateriales] = useState(() =>
-    (Array.isArray(orden.materiales) ? orden.materiales : []).map((m) => ({
-      nombre_material: m.nombre_material || m.nombre || '',
-      cantidad: String(m.cantidad ?? 1),
-      precio_unitario: String(m.precio_unitario ?? 0),
-    })),
-  );
   const [fotosActuales, setFotosActuales] = useState(() =>
     Array.isArray(orden.fotosIntervencionUrls) ? [...orden.fotosIntervencionUrls] : [],
   );
@@ -37,13 +40,6 @@ export function BloqueEditarParteCompleto({
       const primerBloque = texto.split('|')[0] || '';
       return primerBloque.trim();
     });
-    setMateriales(
-      (Array.isArray(orden.materiales) ? orden.materiales : []).map((m) => ({
-        nombre_material: m.nombre_material || m.nombre || '',
-        cantidad: String(m.cantidad ?? 1),
-        precio_unitario: String(m.precio_unitario ?? 0),
-      })),
-    );
     const refs = Array.isArray(orden.fotosIntervencionUrls) ? [...orden.fotosIntervencionUrls] : [];
     setFotosActuales(refs);
     setFotosAEliminar([]);
@@ -58,24 +54,12 @@ export function BloqueEditarParteCompleto({
     ).then((pares) => {
       setMapaFotosVista(Object.fromEntries(pares.filter(([k]) => k)));
     }).catch(() => {});
-  }, [abierto, orden.descripcion, orden.materiales, orden.fotosIntervencionUrls]);
+  }, [abierto, orden.descripcion, orden.tareasRealizadas, orden.fotosIntervencionUrls]);
 
   function alternarEliminarFoto(url) {
     setFotosAEliminar((prev) =>
       prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url],
     );
-  }
-
-  function actualizarMaterial(indice, campo, valor) {
-    setMateriales((prev) => prev.map((m, i) => (i === indice ? { ...m, [campo]: valor } : m)));
-  }
-
-  function eliminarMaterial(indice) {
-    setMateriales((prev) => prev.filter((_, i) => i !== indice));
-  }
-
-  function agregarMaterial() {
-    setMateriales((prev) => [...prev, { nombre_material: '', cantidad: '1', precio_unitario: '0' }]);
   }
 
   function aceptarFotosNuevas(evento) {
@@ -93,14 +77,9 @@ export function BloqueEditarParteCompleto({
     setMensaje('');
     try {
       const tareasLibreTrim = String(tareasLibre || '').trim();
-      await onEditarParteCompleto(orden.id, {
+      await onGuardarParteCompleto(orden.id, {
         descripcion_averia: descripcionAveria,
         ...(tareasLibreTrim ? { tareas_realizadas_libre: tareasLibreTrim } : {}),
-        materiales: materiales.map((m) => ({
-          nombre_material: m.nombre_material,
-          cantidad: m.cantidad,
-          precio_unitario: m.precio_unitario,
-        })),
         fotos_a_eliminar: fotosAEliminar,
         fotos_nuevas: fotosNuevas,
       });
@@ -168,7 +147,7 @@ export function BloqueEditarParteCompleto({
                 <input
                   type="text"
                   value={m.nombre_material}
-                  onChange={(e) => actualizarMaterial(i, 'nombre_material', e.target.value)}
+                  onChange={(e) => onActualizarMaterial(i, 'nombre_material', e.target.value)}
                   placeholder="Nombre"
                   className="col-span-6 rounded border border-slate-300 px-2 py-1 text-xs"
                 />
@@ -177,7 +156,7 @@ export function BloqueEditarParteCompleto({
                   min="0"
                   step="1"
                   value={m.cantidad}
-                  onChange={(e) => actualizarMaterial(i, 'cantidad', e.target.value)}
+                  onChange={(e) => onActualizarMaterial(i, 'cantidad', e.target.value)}
                   placeholder="Cant."
                   className="col-span-2 rounded border border-slate-300 px-2 py-1 text-xs"
                 />
@@ -186,13 +165,13 @@ export function BloqueEditarParteCompleto({
                   min="0"
                   step="0.01"
                   value={m.precio_unitario}
-                  onChange={(e) => actualizarMaterial(i, 'precio_unitario', e.target.value)}
+                  onChange={(e) => onActualizarMaterial(i, 'precio_unitario', e.target.value)}
                   placeholder="€/u"
                   className="col-span-3 rounded border border-slate-300 px-2 py-1 text-xs"
                 />
                 <button
                   type="button"
-                  onClick={() => eliminarMaterial(i)}
+                  onClick={() => onEliminarMaterial(i)}
                   className="col-span-1 rounded bg-red-100 px-1 text-xs font-bold text-red-700"
                   title="Eliminar"
                 >
@@ -202,11 +181,37 @@ export function BloqueEditarParteCompleto({
             ))}
             <button
               type="button"
-              onClick={agregarMaterial}
+              onClick={onAgregarMaterial}
               className="w-full rounded-lg border border-dashed border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
             >
               + Añadir material
             </button>
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">Materiales facturados (€)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={costeMaterialesValoracion}
+                onChange={(e) => onActualizarCosteMaterialesValoracion(e.target.value)}
+                className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+              />
+            </label>
+            <p className="text-[11px] text-slate-600">
+              Suma calculada desde líneas de material: {totalMaterialesCalculado.toFixed(2)} €
+            </p>
+            {hayDiscrepanciaMateriales && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900">
+                <p className="font-semibold">{mensajeDiscrepanciaMateriales}</p>
+                <button
+                  type="button"
+                  onClick={onAlinearMateriales}
+                  className="mt-2 rounded-lg border border-amber-400 bg-white px-2 py-1 font-semibold text-amber-800"
+                >
+                  Usar suma calculada
+                </button>
+              </div>
+            )}
             <p className="text-[10px] text-slate-500">
               No se ajusta el stock de inventario al editar; solo cambia el detalle del informe.
             </p>

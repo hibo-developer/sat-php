@@ -41,6 +41,24 @@ function crearFormularioValoracion(orden) {
   };
 }
 
+function crearMaterialesCompartidos(orden) {
+  return (Array.isArray(orden.materiales) ? orden.materiales : []).map((m) => ({
+    nombre_material: m.nombre_material || m.nombre || '',
+    cantidad: String(m.cantidad ?? 1),
+    precio_unitario: String(m.precio_unitario ?? 0),
+  }));
+}
+
+function calcularTotalMateriales(materiales) {
+  const total = (Array.isArray(materiales) ? materiales : []).reduce((acumulado, material) => {
+    const cantidad = Number(material?.cantidad || 0);
+    const precioUnitario = Number(material?.precio_unitario || 0);
+    return acumulado + (Number.isFinite(cantidad) ? cantidad : 0) * (Number.isFinite(precioUnitario) ? precioUnitario : 0);
+  }, 0);
+
+  return Number(total.toFixed(2));
+}
+
 export function useTarjetaOrden({
   orden,
   onActualizar,
@@ -58,6 +76,7 @@ export function useTarjetaOrden({
   const [descargandoInforme, setDescargandoInforme] = useState(false);
   const [formularioEdicion, setFormularioEdicion] = useState(() => crearFormularioEdicion(orden));
   const [formularioValoracion, setFormularioValoracion] = useState(() => crearFormularioValoracion(orden));
+  const [materialesCompartidos, setMaterialesCompartidos] = useState(() => crearMaterialesCompartidos(orden));
 
   useEffect(() => {
     setFormularioEdicion(crearFormularioEdicion(orden));
@@ -80,6 +99,62 @@ export function useTarjetaOrden({
     orden.fechaFinIso,
     orden.mecanicosIntervinieron,
   ]);
+
+  useEffect(() => {
+    setMaterialesCompartidos(crearMaterialesCompartidos(orden));
+  }, [orden.materiales]);
+
+  function sincronizarCosteMaterialesConLista(materiales) {
+    const total = calcularTotalMateriales(materiales);
+    setFormularioValoracion((previo) => ({
+      ...previo,
+      coste_materiales_editable: total.toFixed(2),
+    }));
+  }
+
+  function actualizarMaterialCompartido(indice, campo, valor) {
+    setMaterialesCompartidos((previo) => {
+      const siguiente = previo.map((material, i) => (i === indice ? { ...material, [campo]: valor } : material));
+      sincronizarCosteMaterialesConLista(siguiente);
+      return siguiente;
+    });
+  }
+
+  function eliminarMaterialCompartido(indice) {
+    setMaterialesCompartidos((previo) => {
+      const siguiente = previo.filter((_, i) => i !== indice);
+      sincronizarCosteMaterialesConLista(siguiente);
+      return siguiente;
+    });
+  }
+
+  function agregarMaterialCompartido() {
+    setMaterialesCompartidos((previo) => {
+      const siguiente = [...previo, { nombre_material: '', cantidad: '1', precio_unitario: '0' }];
+      sincronizarCosteMaterialesConLista(siguiente);
+      return siguiente;
+    });
+  }
+
+  function alinearValoracionConMateriales() {
+    sincronizarCosteMaterialesConLista(materialesCompartidos);
+    setMensajeValoracion('');
+  }
+
+  const totalMaterialesCalculado = calcularTotalMateriales(materialesCompartidos);
+  const totalMaterialesValoracion = Number(formularioValoracion.coste_materiales_editable || 0);
+  const hayDiscrepanciaMateriales = Math.abs(totalMaterialesValoracion - totalMaterialesCalculado) > 0.01;
+  const mensajeDiscrepanciaMateriales = hayDiscrepanciaMateriales
+    ? `La valoración económica (${totalMaterialesValoracion.toFixed(2)} €) no coincide con la suma de materiales del parte (${totalMaterialesCalculado.toFixed(2)} €).`
+    : '';
+
+  function asegurarMaterialesSincronizados() {
+    if (!hayDiscrepanciaMateriales) {
+      return null;
+    }
+
+    return `${mensajeDiscrepanciaMateriales} Sincroniza ambos importes antes de regenerar el informe PDF.`;
+  }
 
   async function guardarEdicion(evento) {
     evento.preventDefault();
@@ -109,6 +184,16 @@ export function useTarjetaOrden({
     setMensajeValoracion('');
 
     try {
+      const mensajeDiscrepancia = asegurarMaterialesSincronizados();
+      if (mensajeDiscrepancia) {
+        setMensajeValoracion(mensajeDiscrepancia);
+        onNotificar?.({
+          tipo: 'error',
+          titulo: 'Discrepancia de materiales',
+          descripcion: mensajeDiscrepancia,
+        });
+        return;
+      }
       const inicio = String(formularioValoracion.fecha_inicio || '').trim();
       const fin = String(formularioValoracion.fecha_fin || '').trim();
       if ((inicio && !fin) || (!inicio && fin)) {
@@ -230,6 +315,23 @@ export function useTarjetaOrden({
     setFormularioValoracion((previo) => ({ ...previo, ...cambios }));
   }
 
+  async function guardarParteCompletoSincronizado(idOrden, payloadParte) {
+    const mensajeDiscrepancia = asegurarMaterialesSincronizados();
+    if (mensajeDiscrepancia) {
+      throw new Error(mensajeDiscrepancia);
+    }
+
+    await onEditarParteCompleto(idOrden, {
+      ...payloadParte,
+      materiales: materialesCompartidos.map((m) => ({
+        nombre_material: m.nombre_material,
+        cantidad: m.cantidad,
+        precio_unitario: m.precio_unitario,
+      })),
+      coste_materiales_editable: formularioValoracion.coste_materiales_editable,
+    });
+  }
+
   function toggleMostrarValoracion() {
     setMostrarValoracion((previo) => !previo);
     setMensajeValoracion('');
@@ -280,6 +382,16 @@ export function useTarjetaOrden({
     actualizarFormularioValoracion,
     toggleMostrarValoracion,
     toggleMostrarEdicion,
+    materialesCompartidos,
+    actualizarMaterialCompartido,
+    eliminarMaterialCompartido,
+    agregarMaterialCompartido,
+    guardarParteCompletoSincronizado,
+    totalMaterialesCalculado,
+    totalMaterialesValoracion,
+    hayDiscrepanciaMateriales,
+    mensajeDiscrepanciaMateriales,
+    alinearValoracionConMateriales,
     costeManoObraBasePreview,
     porcentajeRecargoManoObraPreview,
     recargoManoObraEurosPreview,

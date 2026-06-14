@@ -200,6 +200,24 @@ export function formatearLugar(ubicacion) {
   return ubicacion?.nombreLugar || 'No disponible';
 }
 
+export function normalizarCategoriaFotoIntervencion(categoria) {
+  if (categoria === 'durante' || categoria === 'despues') {
+    return categoria;
+  }
+  return 'antes';
+}
+
+export function resolverEtiquetaCategoriaFoto(nombreArchivo) {
+  const nombre = String(nombreArchivo || '').toLowerCase();
+  if (nombre.includes('_durante_')) {
+    return 'Durante';
+  }
+  if (nombre.includes('_despues_')) {
+    return 'Después';
+  }
+  return 'Antes';
+}
+
 export function parsearNumeroDecimal(valor) {
   const numero = Number.parseFloat(String(valor || '').replace(',', '.'));
   return Number.isFinite(numero) ? numero : null;

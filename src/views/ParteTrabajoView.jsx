@@ -25,6 +25,7 @@ import {
   geocodificarDireccion,
   normalizarDireccion,
   PASOS_PARTE,
+  resolverEtiquetaCategoriaFoto,
 } from '../services/parteTrabajoViewUtils';
 import { deduplicarTecnicosParaSelector } from '../services/tecnicosUtils';
 
@@ -85,6 +86,7 @@ export function ParteTrabajoView() {
     setPasoActual,
     canvasFirmaRef,
     inputFotoAntesRef,
+    inputFotoDuranteRef,
     inputFotoDespuesRef,
     previewsFotosRef,
     dibujandoFirmaRef,
@@ -92,6 +94,7 @@ export function ParteTrabajoView() {
     llegadaRegistradaRef,
   } = useParteTrabajoState({ prefill });
   const {
+    abrirCapturaFoto,
     iniciarTrazoFirma,
     limpiarFirma,
     manejarSeleccionFotos,
@@ -103,6 +106,9 @@ export function ParteTrabajoView() {
     dibujandoFirmaRef,
     fotosIntervencion,
     formulario,
+    inputFotoAntesRef,
+    inputFotoDuranteRef,
+    inputFotoDespuesRef,
     numeroTicketPrefill: prefill?.numero_ticket || null,
     ordenesAbiertas,
     previewsFotosRef,
@@ -546,6 +552,102 @@ export function ParteTrabajoView() {
     }
   }
 
+  const panelFotosIntervencion = pasoActual >= 1 ? (
+    <div className="rounded-xl border border-slate-300 bg-white p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold text-slate-700">Fotos de la intervención</span>
+        {fotosIntervencion.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setFotosIntervencion([])}
+            className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700"
+          >
+            Quitar todos
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <button
+          type="button"
+          onClick={() => abrirCapturaFoto('antes')}
+          disabled={guardando}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+        >
+          Añadir (antes)
+        </button>
+        <button
+          type="button"
+          onClick={() => abrirCapturaFoto('durante')}
+          disabled={guardando}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+        >
+          Añadir (durante)
+        </button>
+        <button
+          type="button"
+          onClick={() => abrirCapturaFoto('despues')}
+          disabled={guardando}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+        >
+          Añadir (después)
+        </button>
+      </div>
+      <input
+        ref={inputFotoAntesRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => manejarSeleccionFotos(e, 'antes')}
+        className="hidden"
+      />
+      <input
+        ref={inputFotoDuranteRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => manejarSeleccionFotos(e, 'durante')}
+        className="hidden"
+      />
+      <input
+        ref={inputFotoDespuesRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => manejarSeleccionFotos(e, 'despues')}
+        className="hidden"
+      />
+      <p className="mt-2 text-[11px] text-slate-600">
+        Puedes capturar evidencias antes, durante y después de la intervención. Para varias fotos, repite la captura por etapa.
+      </p>
+      {fotosIntervencion.length > 0 && (
+        <ul className="mt-2 grid grid-cols-2 gap-2">
+          {fotosIntervencion.map((foto, indice) => (
+            <li key={`${foto.name}-${foto.size}-${foto.lastModified}`} className="rounded-lg bg-slate-50 p-2 text-xs">
+              <img
+                src={previewsFotosRef.current.get(`${foto.name}-${foto.size}-${foto.lastModified}`)}
+                alt={foto.name}
+                className="h-20 w-full rounded-md object-cover"
+              />
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-700">{foto.name}</p>
+                  <p className="text-[11px] text-slate-500">{resolverEtiquetaCategoriaFoto(foto.name)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => quitarFotoIntervencion(indice)}
+                  className="shrink-0 rounded-lg bg-rose-100 px-2 py-1 font-semibold text-rose-700"
+                >
+                  Quitar
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  ) : null;
+
   if (!tieneBackendApi()) {
     return (
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
@@ -894,6 +996,8 @@ export function ParteTrabajoView() {
             </div>
           )}
 
+          {panelFotosIntervencion}
+
           {pasoActual === 2 && (
             <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
               <label className="block lg:col-span-2">
@@ -1001,82 +1105,6 @@ export function ParteTrabajoView() {
                 />
               </label>
 
-              <div className="rounded-xl border border-slate-300 bg-white p-3 lg:col-span-2">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-700">Fotos de la intervención</span>
-                  {fotosIntervencion.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setFotosIntervencion([])}
-                      className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700"
-                    >
-                      Quitar todos
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => inputFotoAntesRef.current?.click()}
-                    disabled={guardando}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
-                  >
-                    Añadir (antes)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => inputFotoDespuesRef.current?.click()}
-                    disabled={guardando}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
-                  >
-                    Añadir (después)
-                  </button>
-                </div>
-                <input
-                  ref={inputFotoAntesRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  onChange={(e) => manejarSeleccionFotos(e, 'antes')}
-                  className="hidden"
-                />
-                <input
-                  ref={inputFotoDespuesRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  onChange={(e) => manejarSeleccionFotos(e, 'despues')}
-                  className="hidden"
-                />
-                <p className="mt-2 text-[11px] text-slate-600">
-                  Máximo 10 fotos. Se comprimen a 1280px para facilitar el envío.
-                </p>
-                {fotosIntervencion.length > 0 && (
-                  <ul className="mt-2 grid grid-cols-2 gap-2">
-                    {fotosIntervencion.map((foto, indice) => (
-                      <li key={`${foto.name}-${foto.size}-${foto.lastModified}`} className="rounded-lg bg-slate-50 p-2 text-xs">
-                        <img
-                          src={previewsFotosRef.current.get(`${foto.name}-${foto.size}-${foto.lastModified}`)}
-                          alt={foto.name}
-                          className="h-20 w-full rounded-md object-cover"
-                        />
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          <span className="min-w-0 flex-1 truncate">{foto.name}</span>
-                          <button
-                            type="button"
-                            onClick={() => quitarFotoIntervencion(indice)}
-                            className="shrink-0 rounded-lg bg-rose-100 px-2 py-1 font-semibold text-rose-700"
-                          >
-                            Quitar
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
             </div>
           )}
 

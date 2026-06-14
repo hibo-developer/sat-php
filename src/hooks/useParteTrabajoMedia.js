@@ -1,11 +1,17 @@
-import { useEffect } from 'react';
-import { comprimirImagenA1280 } from '../services/parteTrabajoViewUtils';
+import { useEffect, useRef } from 'react';
+import {
+  comprimirImagenA1280,
+  normalizarCategoriaFotoIntervencion,
+} from '../services/parteTrabajoViewUtils';
 
 export function useParteTrabajoMedia({
   canvasFirmaRef,
   dibujandoFirmaRef,
   fotosIntervencion,
   formulario,
+  inputFotoAntesRef,
+  inputFotoDuranteRef,
+  inputFotoDespuesRef,
   numeroTicketPrefill,
   ordenesAbiertas,
   previewsFotosRef,
@@ -15,6 +21,71 @@ export function useParteTrabajoMedia({
   setMensaje,
   setPreviewsFotos,
 }) {
+  const permisoCamaraRef = useRef({ state: 'unknown', supported: false });
+
+  useEffect(() => {
+    let activo = true;
+    let permiso = null;
+
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+      return undefined;
+    }
+
+    permisoCamaraRef.current = { state: 'unknown', supported: true };
+
+    (async () => {
+      try {
+        permiso = await navigator.permissions.query({ name: 'camera' });
+        if (!activo) return;
+        permisoCamaraRef.current = { state: permiso?.state || 'unknown', supported: true };
+        if (permiso) {
+          permiso.onchange = () => {
+            permisoCamaraRef.current = { state: permiso?.state || 'unknown', supported: true };
+          };
+        }
+      } catch {
+        if (activo) {
+          permisoCamaraRef.current = { state: 'unknown', supported: false };
+        }
+      }
+    })();
+
+    return () => {
+      activo = false;
+      if (permiso) {
+        permiso.onchange = null;
+      }
+    };
+  }, []);
+
+  function abrirCapturaFoto(categoria) {
+    const categoriaNormalizada = normalizarCategoriaFotoIntervencion(categoria);
+    const inputRef = categoriaNormalizada === 'despues'
+      ? inputFotoDespuesRef
+      : categoriaNormalizada === 'durante'
+        ? inputFotoDuranteRef
+        : inputFotoAntesRef;
+    const input = inputRef?.current || null;
+
+    if (!input) {
+      setMensaje('');
+      setError('No se pudo inicializar la cámara en este dispositivo.');
+      return;
+    }
+
+    const estadoPermiso = permisoCamaraRef.current?.state || 'unknown';
+    setError('');
+    if (estadoPermiso === 'denied') {
+      setMensaje('El navegador indica que la cámara puede estar restringida, pero se intentará abrir igualmente.');
+    } else if (estadoPermiso !== 'granted') {
+      setMensaje('Si no se abre la cámara, revisa los permisos de Cámara para Chrome y vuelve a intentarlo.');
+    } else {
+      setMensaje('');
+    }
+
+    input.click();
+  }
+
   function prepararCanvasFirma() {
     const canvas = canvasFirmaRef.current;
     if (!canvas) {
@@ -108,7 +179,7 @@ export function useParteTrabajoMedia({
       return;
     }
 
-    const cat = categoria === 'despues' ? 'despues' : 'antes';
+    const cat = normalizarCategoriaFotoIntervencion(categoria);
     const orden = ordenesAbiertas.find((o) => o.id === formulario.orden_id);
     const ticket = orden?.numero_ticket || numeroTicketPrefill || null;
     const otRef = ticket ? String(ticket) : (formulario.orden_id ? String(formulario.orden_id).slice(0, 8) : 'sin_ot');
@@ -189,6 +260,7 @@ export function useParteTrabajoMedia({
   }, [previewsFotosRef]);
 
   return {
+    abrirCapturaFoto,
     iniciarTrazoFirma,
     limpiarFirma,
     manejarSeleccionFotos,

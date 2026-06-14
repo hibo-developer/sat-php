@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { construirUrlRutaCliente } from './parteTrabajoViewUtils';
+import {
+  construirUrlRutaCliente,
+  normalizarCategoriaFotoIntervencion,
+  resolverEtiquetaCategoriaFoto,
+} from './parteTrabajoViewUtils';
 
 describe('parteTrabajoViewUtils', () => {
   describe('construirUrlRutaCliente', () => {
@@ -29,5 +33,19 @@ describe('parteTrabajoViewUtils', () => {
       expect(url).toContain('travelmode=driving');
     });
   });
-});
 
+  describe('categorias de fotos', () => {
+    it('normaliza categorias soportadas de fotos de intervencion', () => {
+      expect(normalizarCategoriaFotoIntervencion('antes')).toBe('antes');
+      expect(normalizarCategoriaFotoIntervencion('durante')).toBe('durante');
+      expect(normalizarCategoriaFotoIntervencion('despues')).toBe('despues');
+      expect(normalizarCategoriaFotoIntervencion('otra')).toBe('antes');
+    });
+
+    it('resuelve la etiqueta visible desde el nombre de archivo', () => {
+      expect(resolverEtiquetaCategoriaFoto('ot_123_antes_01.jpg')).toBe('Antes');
+      expect(resolverEtiquetaCategoriaFoto('ot_123_durante_01.jpg')).toBe('Durante');
+      expect(resolverEtiquetaCategoriaFoto('ot_123_despues_01.jpg')).toBe('Después');
+    });
+  });
+});

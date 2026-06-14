@@ -305,6 +305,7 @@ export async function editarParteFinalizado(ordenId, payload) {
       descripcion_averia: payload?.descripcion_averia,
       tareas_realizadas_libre: payload?.tareas_realizadas_libre,
       materiales: Array.isArray(payload?.materiales) ? payload.materiales : [],
+      coste_materiales_editable: payload?.coste_materiales_editable,
       fotos_a_eliminar: Array.isArray(payload?.fotos_a_eliminar) ? payload.fotos_a_eliminar : [],
       fotos_nuevas: refsNuevas,
     },

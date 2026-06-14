@@ -88,6 +88,7 @@ export function useParteTrabajoState({ prefill }) {
 
   const canvasFirmaRef = useRef(null);
   const inputFotoAntesRef = useRef(null);
+  const inputFotoDuranteRef = useRef(null);
   const inputFotoDespuesRef = useRef(null);
   const previewsFotosRef = useRef(new Map());
   const dibujandoFirmaRef = useRef(false);
@@ -163,6 +164,7 @@ export function useParteTrabajoState({ prefill }) {
     setPasoActual,
     canvasFirmaRef,
     inputFotoAntesRef,
+    inputFotoDuranteRef,
     inputFotoDespuesRef,
     previewsFotosRef,
     dibujandoFirmaRef,

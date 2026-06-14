@@ -4,8 +4,12 @@ import { deduplicarTecnicosParaSelector } from '../services/tecnicosUtils';
 export function FormularioValoracionOrdenFinalizada({
   formularioValoracion,
   onChangeFormularioValoracion,
+  onAlinearMateriales,
   accionEnCurso,
   mensajeValoracion,
+  mensajeDiscrepanciaMateriales,
+  hayDiscrepanciaMateriales,
+  totalMaterialesCalculado,
   onSubmit,
   costeManoObraBasePreview,
   porcentajeRecargoManoObraPreview,
@@ -27,6 +31,22 @@ export function FormularioValoracionOrdenFinalizada({
           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
         />
       </label>
+
+      <div className={`rounded-lg border p-2 text-xs ${hayDiscrepanciaMateriales ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+        <p>Suma actual de materiales del parte: {totalMaterialesCalculado.toFixed(2)} €</p>
+        {hayDiscrepanciaMateriales && (
+          <div className="mt-2 space-y-2">
+            <p className="font-semibold">{mensajeDiscrepanciaMateriales}</p>
+            <button
+              type="button"
+              onClick={onAlinearMateriales}
+              className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-semibold text-amber-800"
+            >
+              Usar suma de materiales del parte
+            </button>
+          </div>
+        )}
+      </div>
 
       <label className="block">
         <span className="mb-1 block text-xs font-semibold text-slate-700">Tarifa mano de obra (€/h)</span>

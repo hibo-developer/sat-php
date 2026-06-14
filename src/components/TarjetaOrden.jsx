@@ -66,6 +66,16 @@ export function TarjetaOrden({
     actualizarFormularioValoracion,
     toggleMostrarValoracion,
     toggleMostrarEdicion,
+    materialesCompartidos,
+    actualizarMaterialCompartido,
+    eliminarMaterialCompartido,
+    agregarMaterialCompartido,
+    guardarParteCompletoSincronizado,
+    totalMaterialesCalculado,
+    totalMaterialesValoracion,
+    hayDiscrepanciaMateriales,
+    mensajeDiscrepanciaMateriales,
+    alinearValoracionConMateriales,
     costeManoObraBasePreview,
     porcentajeRecargoManoObraPreview,
     recargoManoObraEurosPreview,
@@ -159,8 +169,12 @@ export function TarjetaOrden({
             <FormularioValoracionOrdenFinalizada
               formularioValoracion={formularioValoracion}
               onChangeFormularioValoracion={actualizarFormularioValoracion}
+              onAlinearMateriales={alinearValoracionConMateriales}
               accionEnCurso={accionEnCurso}
               mensajeValoracion={mensajeValoracion}
+              mensajeDiscrepanciaMateriales={mensajeDiscrepanciaMateriales}
+              hayDiscrepanciaMateriales={hayDiscrepanciaMateriales}
+              totalMaterialesCalculado={totalMaterialesCalculado}
               onSubmit={guardarValoracion}
               costeManoObraBasePreview={costeManoObraBasePreview}
               porcentajeRecargoManoObraPreview={porcentajeRecargoManoObraPreview}
@@ -174,8 +188,18 @@ export function TarjetaOrden({
             <BloqueEditarParteCompleto
               orden={orden}
               accionEnCurso={accionEnCurso}
-              onEditarParteCompleto={onEditarParteCompleto}
+              onGuardarParteCompleto={guardarParteCompletoSincronizado}
               onNotificar={onNotificar}
+              materiales={materialesCompartidos}
+              onActualizarMaterial={actualizarMaterialCompartido}
+              onEliminarMaterial={eliminarMaterialCompartido}
+              onAgregarMaterial={agregarMaterialCompartido}
+              costeMaterialesValoracion={formularioValoracion.coste_materiales_editable}
+              totalMaterialesCalculado={totalMaterialesCalculado}
+              hayDiscrepanciaMateriales={hayDiscrepanciaMateriales}
+              mensajeDiscrepanciaMateriales={mensajeDiscrepanciaMateriales}
+              onAlinearMateriales={alinearValoracionConMateriales}
+              onActualizarCosteMaterialesValoracion={(valor) => actualizarFormularioValoracion({ coste_materiales_editable: valor })}
             />
           ) : null}
           bloqueEliminar={bloqueEliminarFinalizada}
