@@ -17,7 +17,6 @@ import {
   encolarPuntoGps,
   intentarActualizarOrden,
 } from '../services/offlineSyncService';
-import { abrirGoogleMaps } from '../services/externalNavigationService';
 import { tieneBackendApi } from '../services/backendClient';
 import {
   construirUrlRutaCliente,
@@ -26,6 +25,7 @@ import {
   geocodificarDireccion,
   PASOS_PARTE,
 } from '../services/parteTrabajoViewUtils';
+import { deduplicarTecnicosParaSelector } from '../services/tecnicosUtils';
 
 export function ParteTrabajoView() {
   const location = useLocation();
@@ -190,6 +190,7 @@ export function ParteTrabajoView() {
     validarPaso,
     avanzarPaso,
   });
+  const tecnicosUnicos = deduplicarTecnicosParaSelector(tecnicos, formulario.tecnico_id);
   const {
     iniciarSeguimientoTiempo,
     finalizarSeguimientoTiempo,
@@ -476,7 +477,8 @@ export function ParteTrabajoView() {
   }, [clientes, desplazamiento.finIso, desplazamiento.inicioIso, formulario.cliente_id, formulario.orden_id, formulario.prioridad, formulario.tecnico_id]);
 
   async function abrirRutaCliente() {
-    const cliente = clientes.find((c) => c.id === formulario.cliente_id);
+    const ventanaRuta = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    const cliente = clientes.find((c) => String(c.id) === String(formulario.cliente_id));
     const direccion = normalizarDireccion(cliente?.direccion);
     let lat = cliente?.lat ?? null;
     let lng = cliente?.lng ?? null;
@@ -503,20 +505,25 @@ export function ParteTrabajoView() {
       lat,
       lng,
       direccion,
+      modoNavegacion: true,
     });
     if (!url) {
+      if (ventanaRuta) {
+        ventanaRuta.close();
+      }
       setError('El cliente no tiene coordenadas ni dirección para abrir la ruta.');
       return;
     }
     setError('');
     setMensaje('');
-    try {
-      const rsp = await abrirGoogleMaps({ lat, lng, address: direccion });
-      if (rsp?.opened) return;
-    } catch {
-      // noop
+    if (ventanaRuta) {
+      ventanaRuta.location.href = url;
+      return;
     }
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const nuevaVentana = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!nuevaVentana) {
+      window.location.assign(url);
+    }
   }
 
   if (!tieneBackendApi()) {
@@ -673,7 +680,7 @@ export function ParteTrabajoView() {
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
                 >
                   <option value="">Selecciona técnico</option>
-                  {tecnicos.map((tecnico) => (
+                  {tecnicosUnicos.map((tecnico) => (
                     <option key={tecnico.id} value={tecnico.id}>
                       {tecnico.nombre}
                     </option>

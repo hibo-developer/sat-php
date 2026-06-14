@@ -7,6 +7,7 @@ import {
   obtenerTecnicosActivos,
 } from '../services/catalogosService';
 import { tieneBackendApi } from '../services/backendClient';
+import { deduplicarTecnicosParaSelector } from '../services/tecnicosUtils';
 
 export function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar, puedeCrearOrdenes }) {
   const LIMITE_CATALOGO = 20;
@@ -40,6 +41,7 @@ export function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar, pued
   const busquedaTecnicoDebounce = useDebounce(busquedaTecnico, 250);
   const cargandoCatalogos = cargandoClientes || cargandoEquipos || cargandoTecnicos;
   const formularioDeshabilitado = !puedeCrearOrdenes || !tieneBackendApi() || cargandoCatalogos;
+  const tecnicosUnicos = deduplicarTecnicosParaSelector(tecnicos, formulario.tecnico_id);
 
   useEffect(() => {
     async function cargarClientes() {
@@ -320,7 +322,7 @@ export function FormularioNuevaOrden({ onCrear, accionEnCurso, onNotificar, pued
           disabled={formularioDeshabilitado}
         >
           <option value="">Selecciona técnico</option>
-          {tecnicos.map((tecnico) => (
+          {tecnicosUnicos.map((tecnico) => (
             <option key={tecnico.id} value={tecnico.id}>
               {tecnico.nombre}
               {tecnico.especialidad ? ` (${tecnico.especialidad})` : ''}

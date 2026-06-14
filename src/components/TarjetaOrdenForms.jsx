@@ -1,4 +1,5 @@
 import { horasManoObraDesdeIntervencionDatetimeLocal } from '../services/ordenesViewUtils';
+import { deduplicarTecnicosParaSelector } from '../services/tecnicosUtils';
 
 export function FormularioValoracionOrdenFinalizada({
   formularioValoracion,
@@ -208,6 +209,8 @@ export function FormularioEdicionOrden({
   onSubmit,
   opcionesEstado,
 }) {
+  const tecnicosUnicos = deduplicarTecnicosParaSelector(tecnicosActivos, formularioEdicion.tecnico_id);
+
   return (
     <form onSubmit={onSubmit} className="space-y-2 rounded-xl border border-marca-100 bg-marca-50 p-3">
       <label className="block">
@@ -219,7 +222,7 @@ export function FormularioEdicionOrden({
           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
         >
           <option value="">Selecciona técnico</option>
-          {tecnicosActivos.map((tecnico) => (
+          {tecnicosUnicos.map((tecnico) => (
             <option key={tecnico.id} value={tecnico.id}>
               {tecnico.nombre}
               {tecnico.especialidad ? ` (${tecnico.especialidad})` : ''}

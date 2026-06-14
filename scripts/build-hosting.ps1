@@ -29,11 +29,16 @@ try {
   $stamp = Get-Date -Format "yyyy-MM-dd_HHmm"
   $releaseFolder = Join-Path $releaseRoot ($stamp + "_hosting")
   $releasePublicHtml = Join-Path $releaseFolder "public_html"
+  $releaseApi = Join-Path $releaseFolder "api"
   Ensure-Dir $releaseRoot
   Ensure-Dir $releaseFolder
   Ensure-Dir $releasePublicHtml
+  Ensure-Dir $releaseApi
   Ensure-Dir (Join-Path $releasePublicHtml "api")
   Ensure-Dir (Join-Path $releasePublicHtml "api\\setup")
+  Ensure-Dir (Join-Path $releaseApi "setup")
+  Ensure-Dir (Join-Path $releaseApi "src")
+  Ensure-Dir (Join-Path $releaseApi "storage-data")
 
   Copy-Item -Path (Join-Path $distHosting "*") -Destination $releasePublicHtml -Recurse -Force
   Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\index.php") -Destination $releasePublicHtml -Force
@@ -41,7 +46,11 @@ try {
   Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\api\index.php") -Destination (Join-Path $releasePublicHtml "api") -Force
   Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\api\.htaccess") -Destination (Join-Path $releasePublicHtml "api") -Force
   Copy-Item -Path (Join-Path $repoRoot "deploy\dondominio\api\setup\create_admin.php") -Destination (Join-Path $releasePublicHtml "api\\setup") -Force
-  Copy-Item -Path (Join-Path $repoRoot "api") -Destination $releaseFolder -Recurse -Force
+  Copy-Item -Path (Join-Path $repoRoot "api\index.php") -Destination $releaseApi -Force
+  Copy-Item -Path (Join-Path $repoRoot "api\.htaccess") -Destination $releaseApi -Force
+  Copy-Item -Path (Join-Path $repoRoot "api\setup\create_admin.php") -Destination (Join-Path $releaseApi "setup") -Force
+  Copy-Item -Path (Join-Path $repoRoot "api\src\*") -Destination (Join-Path $releaseApi "src") -Recurse -Force
+  Copy-Item -Path (Join-Path $repoRoot "api\storage-data\.gitignore") -Destination (Join-Path $releaseApi "storage-data") -Force
   Copy-Item -Path (Join-Path $repoRoot "config") -Destination $releaseFolder -Recurse -Force
   Copy-Item -Path (Join-Path $repoRoot "sql") -Destination $releaseFolder -Recurse -Force
   Copy-Item -Path (Join-Path $repoRoot "DONDOMINIO.md") -Destination $releaseFolder -Force
