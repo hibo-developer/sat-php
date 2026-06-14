@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `sat-app-${CACHE_VERSION}`;
 
 const PRECACHE_URLS = [
@@ -12,6 +12,11 @@ function esActivoEstatico(url) {
   if (!url || url.origin !== self.location.origin) return false;
   if (url.pathname.includes('/assets/')) return true;
   return /\.(?:js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|eot|json|webmanifest)$/i.test(url.pathname);
+}
+
+function esPeticionApi(url) {
+  if (!url || url.origin !== self.location.origin) return false;
+  return url.pathname === '/api' || url.pathname.startsWith('/api/');
 }
 
 async function cacheFirst(request) {
@@ -75,6 +80,12 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // La API autenticada usa su propia estrategia offline con IndexedDB.
+  // Evitamos cachearla a nivel HTTP para no persistir datos de sesión.
+  if (esPeticionApi(url)) {
+    return;
+  }
 
   if (request.mode === 'navigate') {
     const indexUrl = new URL('./index.html', self.location).toString();

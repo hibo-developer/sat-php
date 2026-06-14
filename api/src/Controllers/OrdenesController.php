@@ -18,37 +18,53 @@ final class OrdenesController
     public function index(Request $request, array $params): void
     {
         $u = Auth::requireRole(['admin', 'oficina', 'tecnico']);
-        $rol = (string)($u['rol'] ?? '');
         $pdo = Db::pdo();
+        [$whereSql, $bind] = $this->buildIndexFilters($request, $u);
+        $pagination = $this->readPagination($request);
 
-        $where = '';
-        $bind = [];
-        if ($rol === 'tecnico') {
-            $tecnicoId = $this->tecnicoIdParaUserId((string)$u['id']);
-            if (!$tecnicoId) {
-                Http::json([]);
-            }
-            $where = 'WHERE o.tecnico_id = :tecnico_id';
-            $bind[':tecnico_id'] = $tecnicoId;
+        $ids = $this->fetchOrderIds($pdo, $whereSql, $bind, $pagination['limit'], $pagination['offset']);
+        $items = $this->fetchOrdersByIds($pdo, $ids);
+
+        if ($pagination['enabled']) {
+            $total = $this->countOrders($pdo, $whereSql, $bind);
+            $totalPages = $pagination['limit'] > 0 ? (int)ceil($total / $pagination['limit']) : 1;
+            Http::json([
+                'items' => $items,
+                'pagination' => [
+                    'page' => $pagination['page'],
+                    'limit' => $pagination['limit'],
+                    'total' => $total,
+                    'total_pages' => max(1, $totalPages),
+                    'has_more' => ($pagination['offset'] + count($items)) < $total,
+                ],
+            ]);
         }
 
-        $sql = "SELECT
-                    o.*,
-                    c.id AS c_id, c.nombre AS c_nombre, c.direccion AS c_direccion, c.telefono AS c_telefono, c.lat AS c_lat, c.lng AS c_lng,
-                    e.id AS e_id, e.nombre AS e_nombre, e.marca AS e_marca, e.modelo AS e_modelo,
-                    t.id AS t_id, t.nombre AS t_nombre,
-                    m.id AS m_id, m.nombre_material AS m_nombre_material, m.cantidad AS m_cantidad, m.precio_unitario AS m_precio_unitario
-                FROM ordenes_trabajo o
-                JOIN clientes c ON c.id = o.cliente_id
-                LEFT JOIN equipos e ON e.id = o.equipo_id
-                JOIN tecnicos t ON t.id = o.tecnico_id
-                LEFT JOIN materiales_orden m ON m.orden_id = o.id
-                {$where}
-                ORDER BY o.fecha_inicio DESC";
-        $st = $pdo->prepare($sql);
-        $st->execute($bind);
-        $rows = $st->fetchAll() ?: [];
-        Http::json($this->agruparOrdenes($rows));
+        Http::json($items);
+    }
+
+    public function show(Request $request, array $params): void
+    {
+        $u = Auth::requireRole(['admin', 'oficina', 'tecnico']);
+        $id = trim((string)($params['id'] ?? ''));
+        if ($id === '') {
+            Http::json(['error' => 'ID inválido.'], 400);
+        }
+
+        $pdo = Db::pdo();
+        $orden = $this->getOrdenCompleta($pdo, $id);
+        if (!$orden) {
+            Http::json(['error' => 'La orden indicada no existe.'], 404);
+        }
+
+        if ((string)($u['rol'] ?? '') === 'tecnico') {
+            $tecnicoId = $this->tecnicoIdParaUserId((string)$u['id']);
+            if (!$tecnicoId || (string)($orden['tecnico_id'] ?? '') !== $tecnicoId) {
+                Http::json(['error' => 'No autorizado.'], 403);
+            }
+        }
+
+        Http::json($orden);
     }
 
     public function create(Request $request, array $params): void
@@ -571,8 +587,132 @@ final class OrdenesController
         return array_values($map);
     }
 
-    private function getOrdenCompleta(\PDO $pdo, string $id): ?array
+    private function buildIndexFilters(Request $request, array $user): array
     {
+        $where = [];
+        $bind = [];
+        $rol = (string)($user['rol'] ?? '');
+
+        if ($rol === 'tecnico') {
+            $tecnicoId = $this->tecnicoIdParaUserId((string)$user['id']);
+            if (!$tecnicoId) {
+                Http::json([]);
+            }
+            $where[] = 'o.tecnico_id = :tecnico_id';
+            $bind[':tecnico_id'] = $tecnicoId;
+        } else {
+            $tecnicoId = trim((string)($request->query['tecnico_id'] ?? ''));
+            if ($tecnicoId !== '') {
+                $where[] = 'o.tecnico_id = :tecnico_id';
+                $bind[':tecnico_id'] = $tecnicoId;
+            }
+        }
+
+        $clienteId = trim((string)($request->query['cliente_id'] ?? ''));
+        if ($clienteId !== '') {
+            $where[] = 'o.cliente_id = :cliente_id';
+            $bind[':cliente_id'] = $clienteId;
+        }
+
+        $updatedSince = trim((string)($request->query['updated_since'] ?? ''));
+        if ($updatedSince !== '') {
+            $where[] = 'o.updated_at >= :updated_since';
+            $bind[':updated_since'] = $this->isoToMysql($updatedSince);
+        }
+
+        $estados = $this->parseCsvQuery($request->query['estado'] ?? null);
+        if ($estados !== []) {
+            $validStates = ['pendiente', 'en_proceso', 'pausado', 'finalizado'];
+            $estados = array_values(array_intersect($validStates, array_map('mb_strtolower', $estados)));
+            if ($estados === []) {
+                $where[] = '1 = 0';
+            } else {
+                $placeholders = [];
+                foreach ($estados as $index => $estado) {
+                    $key = ':estado_' . $index;
+                    $placeholders[] = $key;
+                    $bind[$key] = $estado;
+                }
+                $where[] = 'o.estado IN (' . implode(', ', $placeholders) . ')';
+            }
+        }
+
+        $ids = $this->parseCsvQuery($request->query['ids'] ?? null);
+        if ($ids !== []) {
+            $placeholders = [];
+            foreach ($ids as $index => $id) {
+                $key = ':id_' . $index;
+                $placeholders[] = $key;
+                $bind[$key] = $id;
+            }
+            $where[] = 'o.id IN (' . implode(', ', $placeholders) . ')';
+        }
+
+        return [$where ? ('WHERE ' . implode(' AND ', $where)) : '', $bind];
+    }
+
+    private function readPagination(Request $request): array
+    {
+        $pageRaw = isset($request->query['page']) ? (int)$request->query['page'] : 0;
+        $limitRaw = isset($request->query['limit']) ? (int)$request->query['limit'] : 0;
+        $metaRaw = trim((string)($request->query['meta'] ?? ''));
+        $enabled = $pageRaw > 0 || $limitRaw > 0 || in_array($metaRaw, ['1', 'true', 'yes'], true);
+        $page = max(1, $pageRaw > 0 ? $pageRaw : 1);
+        $limit = max(1, min(200, $limitRaw > 0 ? $limitRaw : 50));
+
+        return [
+            'enabled' => $enabled,
+            'page' => $page,
+            'limit' => $limit,
+            'offset' => ($page - 1) * $limit,
+        ];
+    }
+
+    private function fetchOrderIds(\PDO $pdo, string $whereSql, array $bind, int $limit, int $offset): array
+    {
+        $sql = "SELECT o.id
+                FROM ordenes_trabajo o
+                {$whereSql}
+                ORDER BY o.fecha_inicio DESC";
+        if ($limit > 0) {
+            $sql .= ' LIMIT :limit OFFSET :offset';
+        }
+
+        $st = $pdo->prepare($sql);
+        foreach ($bind as $key => $value) {
+            $st->bindValue($key, $value);
+        }
+        if ($limit > 0) {
+            $st->bindValue(':limit', $limit, \PDO::PARAM_INT);
+            $st->bindValue(':offset', $offset, \PDO::PARAM_INT);
+        }
+        $st->execute();
+        $ids = $st->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+        return array_values(array_map(static fn($id) => (string)$id, $ids));
+    }
+
+    private function countOrders(\PDO $pdo, string $whereSql, array $bind): int
+    {
+        $sql = "SELECT COUNT(*) FROM ordenes_trabajo o {$whereSql}";
+        $st = $pdo->prepare($sql);
+        $st->execute($bind);
+        return (int)$st->fetchColumn();
+    }
+
+    private function fetchOrdersByIds(\PDO $pdo, array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = [];
+        $bind = [];
+        foreach (array_values($ids) as $index => $id) {
+            $key = ':fetch_id_' . $index;
+            $placeholders[] = $key;
+            $bind[$key] = $id;
+        }
+
         $sql = "SELECT
                     o.*,
                     c.id AS c_id, c.nombre AS c_nombre, c.direccion AS c_direccion, c.telefono AS c_telefono, c.lat AS c_lat, c.lng AS c_lng,
@@ -584,21 +724,27 @@ final class OrdenesController
                 LEFT JOIN equipos e ON e.id = o.equipo_id
                 JOIN tecnicos t ON t.id = o.tecnico_id
                 LEFT JOIN materiales_orden m ON m.orden_id = o.id
-                WHERE o.id = :id";
+                WHERE o.id IN (" . implode(', ', $placeholders) . ")
+                ORDER BY o.fecha_inicio DESC";
         $st = $pdo->prepare($sql);
-        $st->execute([':id' => $id]);
+        $st->execute($bind);
         $rows = $st->fetchAll() ?: [];
-        if (count($rows) === 0) {
-            return null;
-        }
-        $grouped = $this->agruparOrdenes($rows);
-        return $grouped[0] ?? null;
+        return $this->agruparOrdenes($rows);
+    }
+
+    private function getOrdenCompleta(\PDO $pdo, string $id): ?array
+    {
+        $items = $this->fetchOrdersByIds($pdo, [$id]);
+        return $items[0] ?? null;
     }
 
     private function rowBaseOrden(array $r): array
     {
         return [
             'id' => (string)$r['id'],
+            'cliente_id' => (string)$r['cliente_id'],
+            'equipo_id' => $r['equipo_id'] !== null ? (string)$r['equipo_id'] : null,
+            'tecnico_id' => (string)$r['tecnico_id'],
             'updated_at' => $this->mysqlToIso($r['updated_at'] ?? null),
             'numero_ticket' => (int)$r['numero_ticket'],
             'descripcion_averia' => (string)$r['descripcion_averia'],
@@ -648,6 +794,18 @@ final class OrdenesController
                 'nombre' => (string)$r['t_nombre'],
             ],
         ];
+    }
+
+    private function parseCsvQuery(mixed $value): array
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            static fn($item) => trim((string)$item),
+            explode(',', $value)
+        )));
     }
 
     private function validarOrdenDuplicada(\PDO $pdo, string $clienteId, ?string $equipoId, string $descripcion): void

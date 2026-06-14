@@ -670,8 +670,7 @@ if (typeof window !== 'undefined') {
 
 async function obtenerOrdenTrabajoActualizadaAt(ordenId) {
   try {
-    const lista = await fetchJson('/ordenes');
-    const orden = Array.isArray(lista) ? lista.find((o) => o.id === ordenId) : null;
+    const orden = await fetchJson(`/ordenes/${encodeURIComponent(ordenId)}`);
     if (!orden) return null;
     return { id: orden.id, updated_at: orden.updated_at || null };
   } catch {

@@ -40,6 +40,7 @@ $router->post('/inventario/materiales/{id}/regularizar', [Sat\Api\Controllers\In
 $router->get('/inventario/movimientos', [Sat\Api\Controllers\InventarioController::class, 'listarMovimientos']);
 
 $router->get('/ordenes', [Sat\Api\Controllers\OrdenesController::class, 'index']);
+$router->get('/ordenes/{id}', [Sat\Api\Controllers\OrdenesController::class, 'show']);
 $router->post('/ordenes', [Sat\Api\Controllers\OrdenesController::class, 'create']);
 $router->put('/ordenes/{id}', [Sat\Api\Controllers\OrdenesController::class, 'update']);
 $router->delete('/ordenes/{id}', [Sat\Api\Controllers\OrdenesController::class, 'delete']);

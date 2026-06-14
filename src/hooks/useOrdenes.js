@@ -7,6 +7,7 @@ import {
   editarParteFinalizado,
   finalizarOrdenTrabajo,
   obtenerOrdenesTrabajo,
+  obtenerOrdenesTrabajoPaginadas,
 } from '../services/workOrderApiService';
 import { tieneBackendApi } from '../services/backendClient';
 import {
@@ -143,38 +144,144 @@ function adaptarOrdenBackend(orden) {
   };
 }
 
+const ORDENES_POR_PAGINA = 8;
+
+function estadoUiABackend(estadoUi) {
+  const mapa = {
+    Pendiente: 'pendiente',
+    'En Proceso': 'en_proceso',
+    Pausado: 'pausado',
+    Finalizado: 'finalizado',
+  };
+  return mapa[estadoUi] || null;
+}
+
 export function useOrdenes() {
   const [ordenes, setOrdenes] = useState([]);
+  const [ordenesPagina, setOrdenesPagina] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
+  const [errorVariant, setErrorVariant] = useState('error');
   const [accionEnCurso, setAccionEnCurso] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState('Todas');
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [paginacion, setPaginacion] = useState({
+    page: 1,
+    limit: ORDENES_POR_PAGINA,
+    total: 0,
+    total_pages: 1,
+    has_more: false,
+  });
 
-  async function cargarOrdenes() {
-    setCargando(true);
+  function limpiarEstadoCarga() {
     setError('');
+    setErrorVariant('error');
+  }
+
+  function mostrarEstadoCarga(mensaje, variant = 'error') {
+    setError(mensaje);
+    setErrorVariant(variant);
+  }
+
+  async function cargarOrdenes({ pagina = paginaActual, limpiarError = true } = {}) {
+    setCargando(true);
+    if (limpiarError) {
+      limpiarEstadoCarga();
+    }
+
+    const estadoBackend = estadoUiABackend(filtroEstado);
+    const filtrosBackend = estadoBackend ? { estado: [estadoBackend] } : {};
 
     try {
       if (tieneBackendApi()) {
         // 1) Pinta inmediatamente desde la caché local si existe.
         if (!estaOnline()) {
           const cache = await obtenerOrdenesCacheadas();
-          setOrdenes(cache.map(adaptarOrdenBackend));
-          setError('Sin conexión: mostrando datos guardados localmente.');
+          const cacheAdaptada = cache.map(adaptarOrdenBackend);
+          const cacheFiltrada = filtroEstado === 'Todas'
+            ? cacheAdaptada
+            : cacheAdaptada.filter((orden) => orden.estado === filtroEstado);
+          const total = cacheFiltrada.length;
+          const totalPages = Math.max(1, Math.ceil(total / ORDENES_POR_PAGINA));
+          const paginaSegura = Math.min(Math.max(1, pagina), totalPages);
+
+          setOrdenes(cacheFiltrada);
+          setOrdenesPagina(
+            cacheFiltrada.slice(
+              (paginaSegura - 1) * ORDENES_POR_PAGINA,
+              paginaSegura * ORDENES_POR_PAGINA,
+            ),
+          );
+          setPaginacion({
+            page: paginaSegura,
+            limit: ORDENES_POR_PAGINA,
+            total,
+            total_pages: totalPages,
+            has_more: paginaSegura < totalPages,
+          });
+          mostrarEstadoCarga('Sin conexión: mostrando datos guardados localmente.', 'neutral');
           return;
         }
 
         try {
-          const datos = await obtenerOrdenesTrabajo();
-          setOrdenes(datos.map(adaptarOrdenBackend));
+          const [respuestaPagina, datosAnalisis] = await Promise.all([
+            obtenerOrdenesTrabajoPaginadas({
+              ...filtrosBackend,
+              page: pagina,
+              limit: ORDENES_POR_PAGINA,
+            }),
+            obtenerOrdenesTrabajo(filtrosBackend),
+          ]);
+
+          const itemsPagina = respuestaPagina.items.map(adaptarOrdenBackend);
+          const itemsAnalisis = datosAnalisis.map(adaptarOrdenBackend);
+          const pagination = respuestaPagina.pagination || {};
+          const totalPages = Math.max(1, Number(pagination.total_pages) || 1);
+          const paginaSegura = Math.min(Math.max(1, pagina), totalPages);
+
+          setOrdenesPagina(itemsPagina);
+          setOrdenes(itemsAnalisis);
+          setPaginacion({
+            page: Number(pagination.page) || paginaSegura,
+            limit: Number(pagination.limit) || ORDENES_POR_PAGINA,
+            total: Number(pagination.total) || itemsAnalisis.length,
+            total_pages: totalPages,
+            has_more: Boolean(pagination.has_more),
+          });
+
+          if (paginaSegura !== pagina) {
+            setPaginaActual(paginaSegura);
+          }
+
           // Refresca la caché para futuras sesiones offline.
-          reemplazarCacheOrdenes(datos).catch(() => { /* noop */ });
+          reemplazarCacheOrdenes(datosAnalisis).catch(() => { /* noop */ });
         } catch (errRed) {
           // Si la red falla a pesar de navigator.onLine, fallback a caché.
           const cache = await obtenerOrdenesCacheadas();
           if (cache.length) {
-            setOrdenes(cache.map(adaptarOrdenBackend));
-            setError('Conexión inestable: mostrando datos guardados localmente.');
+            const cacheAdaptada = cache.map(adaptarOrdenBackend);
+            const cacheFiltrada = filtroEstado === 'Todas'
+              ? cacheAdaptada
+              : cacheAdaptada.filter((orden) => orden.estado === filtroEstado);
+            const total = cacheFiltrada.length;
+            const totalPages = Math.max(1, Math.ceil(total / ORDENES_POR_PAGINA));
+            const paginaSegura = Math.min(Math.max(1, pagina), totalPages);
+
+            setOrdenes(cacheFiltrada);
+            setOrdenesPagina(
+              cacheFiltrada.slice(
+                (paginaSegura - 1) * ORDENES_POR_PAGINA,
+                paginaSegura * ORDENES_POR_PAGINA,
+              ),
+            );
+            setPaginacion({
+              page: paginaSegura,
+              limit: ORDENES_POR_PAGINA,
+              total,
+              total_pages: totalPages,
+              has_more: paginaSegura < totalPages,
+            });
+            mostrarEstadoCarga('Conexión inestable: mostrando datos guardados localmente.', 'neutral');
           } else {
             throw errRed;
           }
@@ -184,35 +291,39 @@ export function useOrdenes() {
         setOrdenes(datos);
       }
     } catch (err) {
-      setError(err.message || 'No se pudieron cargar las órdenes.');
+      mostrarEstadoCarga(err.message || 'No se pudieron cargar las órdenes.');
     } finally {
       setCargando(false);
     }
   }
 
   useEffect(() => {
-    cargarOrdenes();
+    cargarOrdenes({ pagina: paginaActual, limpiarError: true });
 
     // Cuando se recupera la conexión, drenamos la cola y recargamos datos.
     function alRecuperarConexion() {
       procesarCola()
         .catch(() => { /* noop */ })
-        .finally(() => { cargarOrdenes(); });
+        .finally(() => { cargarOrdenes({ pagina: paginaActual, limpiarError: false }); });
     }
 
     window.addEventListener('online', alRecuperarConexion);
     return () => { window.removeEventListener('online', alRecuperarConexion); };
-  }, []);
+  }, [filtroEstado, paginaActual]);
+
+  useEffect(() => {
+    setPaginaActual(1);
+  }, [filtroEstado]);
 
   async function crearOrdenDesdeFormulario(datosOrden) {
     setAccionEnCurso(true);
-    setError('');
+    limpiarEstadoCarga();
 
     try {
       await crearOrdenTrabajo(datosOrden);
-      await cargarOrdenes();
+      await cargarOrdenes({ pagina: paginaActual });
     } catch (err) {
-      setError(err.message || 'No se pudo crear la orden.');
+      mostrarEstadoCarga(err.message || 'No se pudo crear la orden.');
       throw err;
     } finally {
       setAccionEnCurso(false);
@@ -221,13 +332,13 @@ export function useOrdenes() {
 
   async function finalizarOrden(idOrden, datosCierre) {
     setAccionEnCurso(true);
-    setError('');
+    limpiarEstadoCarga();
 
     try {
       await finalizarOrdenTrabajo(idOrden, datosCierre);
-      await cargarOrdenes();
+      await cargarOrdenes({ pagina: paginaActual });
     } catch (err) {
-      setError(err.message || 'No se pudo finalizar la orden.');
+      mostrarEstadoCarga(err.message || 'No se pudo finalizar la orden.');
       throw err;
     } finally {
       setAccionEnCurso(false);
@@ -236,16 +347,16 @@ export function useOrdenes() {
 
   async function actualizarOrden(idOrden, datosOrden) {
     setAccionEnCurso(true);
-    setError('');
+    limpiarEstadoCarga();
 
     try {
       const resultado = await intentarActualizarOrden(idOrden, datosOrden);
       if (resultado.offline) {
-        setError('Sin conexión: cambios encolados, se sincronizarán al reconectar.');
+        mostrarEstadoCarga('Sin conexión: cambios encolados, se sincronizarán al reconectar.', 'neutral');
       }
-      await cargarOrdenes();
+      await cargarOrdenes({ pagina: paginaActual, limpiarError: false });
     } catch (err) {
-      setError(err.message || 'No se pudo actualizar la orden.');
+      mostrarEstadoCarga(err.message || 'No se pudo actualizar la orden.');
       throw err;
     } finally {
       setAccionEnCurso(false);
@@ -254,13 +365,13 @@ export function useOrdenes() {
 
   async function actualizarValoracionFinalizada(idOrden, datosValoracion) {
     setAccionEnCurso(true);
-    setError('');
+    limpiarEstadoCarga();
 
     try {
       await actualizarValoracionOrdenFinalizada(idOrden, datosValoracion);
-      await cargarOrdenes();
+      await cargarOrdenes({ pagina: paginaActual });
     } catch (err) {
-      setError(err.message || 'No se pudo actualizar la valoración y regenerar el informe.');
+      mostrarEstadoCarga(err.message || 'No se pudo actualizar la valoración y regenerar el informe.');
       throw err;
     } finally {
       setAccionEnCurso(false);
@@ -269,13 +380,13 @@ export function useOrdenes() {
 
   async function editarParteCompleto(idOrden, payloadEdicion) {
     setAccionEnCurso(true);
-    setError('');
+    limpiarEstadoCarga();
 
     try {
       await editarParteFinalizado(idOrden, payloadEdicion);
-      await cargarOrdenes();
+      await cargarOrdenes({ pagina: paginaActual });
     } catch (err) {
-      setError(err.message || 'No se pudo editar el parte y regenerar el informe.');
+      mostrarEstadoCarga(err.message || 'No se pudo editar el parte y regenerar el informe.');
       throw err;
     } finally {
       setAccionEnCurso(false);
@@ -284,20 +395,24 @@ export function useOrdenes() {
 
   async function eliminarOrden(idOrden) {
     setAccionEnCurso(true);
-    setError('');
+    limpiarEstadoCarga();
 
     try {
       const resultado = await intentarEliminarOrden(idOrden);
       if (resultado.offline) {
-        setError('Sin conexión: eliminación encolada, se aplicará al reconectar.');
+        mostrarEstadoCarga('Sin conexión: eliminación encolada, se aplicará al reconectar.', 'neutral');
       }
-      await cargarOrdenes();
+      await cargarOrdenes({ pagina: paginaActual, limpiarError: false });
     } catch (err) {
-      setError(err.message || 'No se pudo eliminar la orden.');
+      mostrarEstadoCarga(err.message || 'No se pudo eliminar la orden.');
       throw err;
     } finally {
       setAccionEnCurso(false);
     }
+  }
+
+  async function recargarOrdenes() {
+    await cargarOrdenes({ pagina: paginaActual, limpiarError: false });
   }
 
   const resumenPorEstado = useMemo(() => {
@@ -311,27 +426,29 @@ export function useOrdenes() {
   }, [ordenes]);
 
   const ordenesFiltradas = useMemo(() => {
-    if (filtroEstado === 'Todas') {
-      return ordenes;
-    }
-
-    return ordenes.filter((orden) => orden.estado === filtroEstado);
-  }, [filtroEstado, ordenes]);
+    return ordenes;
+  }, [ordenes]);
 
   return {
     ordenes,
+    ordenesPagina,
     ordenesFiltradas,
     cargando,
     error,
+    errorVariant,
     accionEnCurso,
     resumenPorEstado,
     filtroEstado,
     setFiltroEstado,
+    paginaActual,
+    setPaginaActual,
+    paginacion,
     crearOrdenDesdeFormulario,
     finalizarOrden,
     actualizarOrden,
     actualizarValoracionFinalizada,
     editarParteCompleto,
     eliminarOrden,
+    recargarOrdenes,
   };
 }

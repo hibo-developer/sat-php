@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { NavbarInferior } from './components/NavbarInferior';
 import { IndicadorSync } from './components/IndicadorSync';
@@ -9,12 +9,13 @@ import { estaOnline } from './services/offlineSyncService';
 import { fetchJson } from './services/apiClient';
 import { tieneBackendApi } from './services/backendClient';
 import logoCotepa from './assets/cotepa.jpg';
-import { AdminView } from './views/AdminView';
-import { AccesoView } from './views/AccesoView';
-import { ClientesView } from './views/ClientesView';
-import { InventarioView } from './views/InventarioView';
-import { ListaOrdenesView } from './views/ListaOrdenesView';
-import { ParteTrabajoView } from './views/ParteTrabajoView';
+
+const AdminView = lazy(() => import('./views/AdminView').then((m) => ({ default: m.AdminView })));
+const AccesoView = lazy(() => import('./views/AccesoView').then((m) => ({ default: m.AccesoView })));
+const ClientesView = lazy(() => import('./views/ClientesView').then((m) => ({ default: m.ClientesView })));
+const InventarioView = lazy(() => import('./views/InventarioView').then((m) => ({ default: m.InventarioView })));
+const ListaOrdenesView = lazy(() => import('./views/ListaOrdenesView').then((m) => ({ default: m.ListaOrdenesView })));
+const ParteTrabajoView = lazy(() => import('./views/ParteTrabajoView').then((m) => ({ default: m.ParteTrabajoView })));
 
 const TITULOS = {
   ordenes: 'Panel SAT',
@@ -87,6 +88,14 @@ function obtenerVistaDesdeRuta(pathname) {
   }
 
   return 'ordenes';
+}
+
+function CargandoVista() {
+  return (
+    <div className="rounded-2xl border border-marca-100 bg-marca-50 px-4 py-6 text-sm font-semibold text-marca-800">
+      Cargando vista...
+    </div>
+  );
 }
 
 export default function App() {
@@ -328,32 +337,34 @@ export default function App() {
             <IndicadorSync />
           </div>
         )}
-        {accesoBloqueado ? (
-          <AccesoView
-            onLogin={login}
-            onVerificarMfa={verificarMfa}
-            onCancelarMfa={cancelarMfa}
-            mfaPendiente={mfaPendiente}
-            cargandoSesion={cargando}
-            errorSesion={error}
-          />
-        ) : (
-          <Routes>
-            <Route path="/" element={<Navigate to="/ordenes" replace />} />
-            <Route path="/ordenes" element={<ListaOrdenesView rolUsuario={rolUsuario} />} />
-            <Route path="/parte" element={<ParteTrabajoView />} />
-            <Route
-              path="/clientes"
-              element={puedeVerClientes ? <ClientesView rolUsuario={rolUsuario} /> : <Navigate to="/ordenes" replace />}
+        <Suspense fallback={<CargandoVista />}>
+          {accesoBloqueado ? (
+            <AccesoView
+              onLogin={login}
+              onVerificarMfa={verificarMfa}
+              onCancelarMfa={cancelarMfa}
+              mfaPendiente={mfaPendiente}
+              cargandoSesion={cargando}
+              errorSesion={error}
             />
-            <Route
-              path="/inventario"
-              element={puedeVerInventario ? <InventarioView rolUsuario={rolUsuario} /> : <Navigate to="/ordenes" replace />}
-            />
-            <Route path="/admin" element={esAdmin ? <AdminView /> : <Navigate to="/ordenes" replace />} />
-            <Route path="*" element={<Navigate to="/ordenes" replace />} />
-          </Routes>
-        )}
+          ) : (
+            <Routes>
+              <Route path="/" element={<Navigate to="/ordenes" replace />} />
+              <Route path="/ordenes" element={<ListaOrdenesView rolUsuario={rolUsuario} />} />
+              <Route path="/parte" element={<ParteTrabajoView />} />
+              <Route
+                path="/clientes"
+                element={puedeVerClientes ? <ClientesView rolUsuario={rolUsuario} /> : <Navigate to="/ordenes" replace />}
+              />
+              <Route
+                path="/inventario"
+                element={puedeVerInventario ? <InventarioView rolUsuario={rolUsuario} /> : <Navigate to="/ordenes" replace />}
+              />
+              <Route path="/admin" element={esAdmin ? <AdminView /> : <Navigate to="/ordenes" replace />} />
+              <Route path="*" element={<Navigate to="/ordenes" replace />} />
+            </Routes>
+          )}
+        </Suspense>
       </main>
 
       {!accesoBloqueado && (

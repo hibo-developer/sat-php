@@ -6,9 +6,13 @@ import {
   validarTextoRequerido,
   validarUrlOpcional,
 } from './satValidation';
-import { generarYSubirInformeParte } from './parteTrabajoInformeService';
 
 const ESTADOS_EDITABLES = new Set(['pendiente', 'en_proceso', 'pausado']);
+
+async function cargarGeneradorInformeParte() {
+  const modulo = await import('./parteTrabajoInformeService');
+  return modulo.generarYSubirInformeParte;
+}
 
 function validarEstadoEditable(estado) {
   const estadoLimpio = limpiarTexto(estado).toLowerCase();
@@ -36,9 +40,64 @@ export function mapearValoracionEconomicaParaInforme(orden) {
   };
 }
 
-export async function obtenerOrdenesTrabajo() {
-  const data = await fetchJson('/ordenes');
-  return Array.isArray(data) ? data : [];
+function construirQueryOrdenes(opciones = {}) {
+  const qp = new URLSearchParams();
+  const {
+    cliente_id,
+    tecnico_id,
+    updated_since,
+    page,
+    limit,
+    meta,
+  } = opciones;
+
+  const estado = Array.isArray(opciones.estado)
+    ? opciones.estado.filter(Boolean).join(',')
+    : String(opciones.estado || '').trim();
+  const ids = Array.isArray(opciones.ids)
+    ? opciones.ids.filter(Boolean).join(',')
+    : String(opciones.ids || '').trim();
+
+  if (estado) qp.set('estado', estado);
+  if (ids) qp.set('ids', ids);
+  if (cliente_id) qp.set('cliente_id', String(cliente_id).trim());
+  if (tecnico_id) qp.set('tecnico_id', String(tecnico_id).trim());
+  if (updated_since) qp.set('updated_since', String(updated_since).trim());
+  if (Number.isFinite(Number(page)) && Number(page) > 0) qp.set('page', String(page));
+  if (Number.isFinite(Number(limit)) && Number(limit) > 0) qp.set('limit', String(limit));
+  if (meta) qp.set('meta', '1');
+
+  const query = qp.toString();
+  return query ? `?${query}` : '';
+}
+
+export async function obtenerOrdenesTrabajo(opciones = {}) {
+  const data = await fetchJson(`/ordenes${construirQueryOrdenes(opciones)}`);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
+}
+
+export async function obtenerOrdenesTrabajoPaginadas(opciones = {}) {
+  const data = await fetchJson(`/ordenes${construirQueryOrdenes({ ...opciones, meta: true })}`);
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    pagination: data?.pagination || {
+      page: Number(opciones.page) || 1,
+      limit: Number(opciones.limit) || 50,
+      total: 0,
+      total_pages: 1,
+      has_more: false,
+    },
+  };
+}
+
+export async function obtenerOrdenTrabajo(ordenId) {
+  const id = limpiarTexto(ordenId);
+  if (!id) {
+    throw new Error('La orden solicitada no es válida.');
+  }
+  return fetchJson(`/ordenes/${id}`);
 }
 
 export async function crearOrdenTrabajo(ordenNueva) {
@@ -187,6 +246,7 @@ export async function actualizarValoracionOrdenFinalizada(ordenId, payload) {
   };
 
   const reservaInforme = await reservarReferenciaInforme(id);
+  const generarYSubirInformeParte = await cargarGeneradorInformeParte();
 
   const { pdfUrl } = await generarYSubirInformeParte({
     parte: orden,
@@ -222,8 +282,7 @@ export async function editarParteFinalizado(ordenId, payload) {
   if (!id) {
     throw new Error('La orden a editar no es válida.');
   }
-  const ordenes = await fetchJson('/ordenes');
-  const ordenActual = Array.isArray(ordenes) ? ordenes.find((o) => o.id === id) : null;
+  const ordenActual = await obtenerOrdenTrabajo(id);
   const clienteId = ordenActual?.clientes?.id || ordenActual?.cliente_id || 'tmp';
   const tecnicoId = ordenActual?.tecnicos?.id || ordenActual?.tecnico_id || 'tmp';
 
@@ -275,6 +334,7 @@ export async function editarParteFinalizado(ordenId, payload) {
   };
 
   const reservaInforme = await reservarReferenciaInforme(id);
+  const generarYSubirInformeParte = await cargarGeneradorInformeParte();
 
   const { pdfUrl } = await generarYSubirInformeParte({
     parte: actualizado,

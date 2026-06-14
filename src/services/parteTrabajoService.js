@@ -5,6 +5,7 @@ import {
   validarPrioridad,
   validarTextoRequerido,
 } from './satValidation';
+import { obtenerOrdenesTrabajo } from './workOrderApiService';
 
 function parsearMateriales(textoMateriales) {
   if (!textoMateriales.trim()) {
@@ -336,11 +337,13 @@ export async function subirFotosIntervencionStorage({ fotos, clienteId, tecnicoI
 export async function obtenerOrdenesAbiertasParaParte(filtros = {}) {
   const clienteId = limpiarTexto(filtros.cliente_id);
   const tecnicoId = limpiarTexto(filtros.tecnico_id);
-  const data = await fetchJson('/ordenes');
-  const lista = Array.isArray(data) ? data : [];
-  const abiertas = new Set(['pendiente', 'en_proceso', 'pausado']);
+  const abiertas = ['pendiente', 'en_proceso', 'pausado'];
+  const lista = await obtenerOrdenesTrabajo({
+    estado: abiertas,
+    cliente_id: clienteId || undefined,
+    tecnico_id: tecnicoId || undefined,
+  });
   return lista
-    .filter((o) => abiertas.has(String(o.estado || '').toLowerCase()))
     .filter((o) => (clienteId ? o.cliente_id === clienteId : true))
     .filter((o) => (tecnicoId ? o.tecnico_id === tecnicoId : true))
     .map((o) => ({

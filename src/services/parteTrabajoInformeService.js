@@ -1,4 +1,3 @@
-import { jsPDF } from 'jspdf';
 import logoCotepaUrl from '../assets/cotepa.jpg';
 import { obtenerUrlFirmadaStorage } from './backendClient';
 import { fetchJson } from './apiClient';
@@ -49,6 +48,20 @@ let metaInforme = {
   referencia: '',
   fechaEmision: '',
 };
+
+let jsPdfConstructorPromise = null;
+
+async function obtenerJsPdfConstructor() {
+  if (!jsPdfConstructorPromise) {
+    jsPdfConstructorPromise = import('jspdf')
+      .then((modulo) => modulo.jsPDF)
+      .catch((error) => {
+        jsPdfConstructorPromise = null;
+        throw error;
+      });
+  }
+  return jsPdfConstructorPromise;
+}
 
 // =====================================================================
 // Utilidades de formato
@@ -876,7 +889,8 @@ async function crearPdfInforme({
   fechaInformeIso,
   referenciaInforme,
 }) {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+  const JsPdf = await obtenerJsPdfConstructor();
+  const doc = new JsPdf({ unit: 'mm', format: 'a4', compress: true });
   const fechaBaseIso = resolverFechaInformeIso({ parte, formulario, seguimientoTiempo, intervension });
   let fechaEmisionIso = fechaBaseIso;
   if (fechaInformeIso) {

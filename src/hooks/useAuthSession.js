@@ -6,6 +6,7 @@ import {
   obtenerSesionActual,
 } from '../services/authService';
 import { tieneBackendApi } from '../services/backendClient';
+import { limpiarDatosLocalesSesion } from '../services/sessionCleanupService';
 
 export function useAuthSession() {
   const [sesion, setSesion] = useState(null);
@@ -77,6 +78,7 @@ export function useAuthSession() {
   async function logout() {
     setError('');
     await cerrarSesion();
+    await limpiarDatosLocalesSesion();
     setSesion(null);
   }
 
