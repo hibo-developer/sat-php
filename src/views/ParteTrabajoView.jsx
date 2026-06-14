@@ -23,6 +23,7 @@ import {
   formatearLugar,
   formatearUbicacion,
   geocodificarDireccion,
+  normalizarDireccion,
   PASOS_PARTE,
 } from '../services/parteTrabajoViewUtils';
 import { deduplicarTecnicosParaSelector } from '../services/tecnicosUtils';
@@ -477,52 +478,71 @@ export function ParteTrabajoView() {
   }, [clientes, desplazamiento.finIso, desplazamiento.inicioIso, formulario.cliente_id, formulario.orden_id, formulario.prioridad, formulario.tecnico_id]);
 
   async function abrirRutaCliente() {
-    const ventanaRuta = window.open('about:blank', '_blank', 'noopener,noreferrer');
-    const cliente = clientes.find((c) => String(c.id) === String(formulario.cliente_id));
-    const direccion = normalizarDireccion(cliente?.direccion);
-    let lat = cliente?.lat ?? null;
-    let lng = cliente?.lng ?? null;
-    const latNumInicial = Number(lat);
-    const lngNumInicial = Number(lng);
-    const tieneCoordsInicial =
-      Number.isFinite(latNumInicial) &&
-      Number.isFinite(lngNumInicial) &&
-      !(latNumInicial === 0 && lngNumInicial === 0);
+    let ventanaRuta = null;
 
-    if (!tieneCoordsInicial && direccion) {
-      setError('');
-      setMensaje('Buscando dirección del cliente…');
-      const coords = await geocodificarDireccion(direccion);
-      if (coords) {
-        lat = coords.lat;
-        lng = coords.lng;
-      } else {
-        lat = null;
-        lng = null;
+    try {
+      const cliente = clientes.find((c) => String(c.id) === String(formulario.cliente_id));
+      const direccion = normalizarDireccion(cliente?.direccion);
+      let lat = cliente?.lat ?? null;
+      let lng = cliente?.lng ?? null;
+      const latNumInicial = Number(lat);
+      const lngNumInicial = Number(lng);
+      const tieneCoordsInicial =
+        Number.isFinite(latNumInicial) &&
+        Number.isFinite(lngNumInicial) &&
+        !(latNumInicial === 0 && lngNumInicial === 0);
+
+      if (!tieneCoordsInicial && direccion) {
+        ventanaRuta = window.open('', '_blank');
+        setError('');
+        setMensaje('Buscando dirección del cliente…');
+        const coords = await geocodificarDireccion(direccion);
+        if (coords) {
+          lat = coords.lat;
+          lng = coords.lng;
+        } else {
+          lat = null;
+          lng = null;
+        }
       }
-    }
-    const url = construirUrlRutaCliente({
-      lat,
-      lng,
-      direccion,
-      modoNavegacion: true,
-    });
-    if (!url) {
-      if (ventanaRuta) {
+
+      const url = construirUrlRutaCliente({
+        lat,
+        lng,
+        direccion,
+        modoNavegacion: true,
+      });
+
+      if (!url) {
+        if (ventanaRuta && !ventanaRuta.closed) {
+          ventanaRuta.close();
+        }
+        setError('El cliente no tiene coordenadas ni dirección para abrir la ruta.');
+        return;
+      }
+
+      setError('');
+      setMensaje('');
+
+      if (ventanaRuta && !ventanaRuta.closed) {
+        try {
+          ventanaRuta.location.replace(url);
+          return;
+        } catch {
+          ventanaRuta.close();
+        }
+      }
+
+      const nuevaVentana = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!nuevaVentana) {
+        window.location.assign(url);
+      }
+    } catch {
+      if (ventanaRuta && !ventanaRuta.closed) {
         ventanaRuta.close();
       }
-      setError('El cliente no tiene coordenadas ni dirección para abrir la ruta.');
-      return;
-    }
-    setError('');
-    setMensaje('');
-    if (ventanaRuta) {
-      ventanaRuta.location.href = url;
-      return;
-    }
-    const nuevaVentana = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!nuevaVentana) {
-      window.location.assign(url);
+      setMensaje('');
+      setError('No se pudo abrir la ruta del cliente.');
     }
   }
 
